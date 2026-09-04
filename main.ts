@@ -1,5 +1,5 @@
-import { Hono } from "https://deno.land/x/hono@v4.7.11/mod.ts";
-import { serveStatic } from "https://deno.land/x/hono@v4.7.11/middleware/deno/serve_static.ts";
+import { Hono } from "hono";
+import { serveStatic } from "hono/deno/serve-static";
 
 // ---------- Types ----------
 type Role = "system" | "user" | "assistant" | "tool";
