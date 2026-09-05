@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { serveStatic } from "hono/deno/serve-static";
+import { serveStatic } from "jsr:@hono/hono@4.13.7/adapter/deno/serve-static";
 
 // ---------- Types ----------
 type Role = "system" | "user" | "assistant" | "tool";
