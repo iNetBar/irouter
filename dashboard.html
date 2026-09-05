@@ -114,10 +114,20 @@ button.ghost:hover{background:var(--nav-hover)}
   background:var(--brand-soft);color:var(--brand);
   box-shadow:inset 3px 0 0 var(--brand);
 }
-.side .foot{padding:12px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line)}
-.side .foot button{text-align:left;padding:9px 12px;font-size:13px;background:transparent;color:var(--muted)}
-.side .foot button:hover{background:var(--nav-hover);color:var(--txt)}
-.side .foot .ver{font-size:11px;color:var(--muted);padding:4px 12px 2px}
+.side .foot{padding:12px;display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line)}
+.side .foot .side-btn{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:9px 12px;font-size:13px;background:transparent;color:var(--muted);
+  border:none;border-radius:999px;cursor:pointer;transition:background .14s ease,color .14s ease;
+}
+.side .foot .side-btn .ic{font-size:15px;line-height:1}
+.side .foot .side-btn:hover{background:var(--nav-hover);color:var(--txt)}
+.side .foot .side-btn:hover .ic{filter:none}
+.side .foot .side-btn:last-child{color:var(--muted)}
+.side .foot .side-btn:last-child .ic{color:var(--muted)}
+.side .foot .side-btn:last-child:hover{background:color-mix(in srgb,var(--bad) 12%,transparent);color:var(--bad)}
+.side .foot .side-btn:last-child:hover .ic{color:var(--bad)}
+.side .foot .ver{font-size:11px;color:var(--muted);padding:6px 12px 2px}
 
 /* ===================== 主区 & 顶栏 ===================== */
 .main{margin-left:232px;min-height:100vh}
@@ -161,19 +171,32 @@ tbody tr{transition:background .12s ease}
 tbody tr:hover{background:var(--panel-2)}
 tbody tr:last-child td{border-bottom:none}
 
-/* —— 操作按钮组：flex 明确分离，根治"删除在编辑里面" —— */
-.btn-group{display:inline-flex;gap:8px;align-items:center}
-td.row-actions{display:flex!important;gap:8px;align-items:center;flex-wrap:nowrap;white-space:nowrap}
+/* —— 操作按钮组：胶囊分段控件（segmented control），去掉外框感 —— */
+.actions{display:inline-flex;align-items:center;gap:6px}
+td.row-actions{display:flex!important;align-items:center;flex-wrap:nowrap;white-space:nowrap;padding:6px 12px!important}
+.btn-group{
+  display:inline-flex;align-items:stretch;
+  background:var(--panel-2);
+  padding:3px;
+  border-radius:999px;
+  box-shadow:inset 0 0 0 1px var(--line);
+}
 table .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:4px;
-  height:32px;min-width:58px;padding:0 13px;font-size:12.5px;line-height:1;
-  border-radius:var(--radius-sm);font-weight:500;position:static;overflow:visible;
-  flex:0 0 auto;
+  height:26px;padding:0 14px;font-size:12px;line-height:1;
+  font-weight:500;color:var(--muted);background:transparent;border:none;
+  border-radius:999px;cursor:pointer;position:static;overflow:visible;flex:0 0 auto;
+  transition:background .14s ease,color .14s ease,box-shadow .14s ease;
 }
-table .btn-edit{background:var(--brand-soft);color:var(--brand);border:1px solid transparent}
-table .btn-edit:hover{background:color-mix(in srgb,var(--brand) 22%,transparent);color:var(--brand-2)}
-table .btn-delete{background:color-mix(in srgb,var(--bad) 12%,transparent);color:var(--bad)}
-table .btn-delete:hover{background:color-mix(in srgb,var(--bad) 22%,transparent)}
+table .btn + .btn{margin-left:0}
+table .btn:hover{color:var(--text)}
+table .btn-edit:hover{color:var(--brand)}
+table .btn.active,table .btn:active{background:var(--bg);color:var(--brand);box-shadow:var(--shadow-sm)}
+table .btn-edit.active,table .btn-edit:active{color:var(--brand)}
+table .btn-delete:hover{color:var(--bad)}
+table .btn-delete.active,table .btn-delete:active{background:var(--bg);color:var(--bad);box-shadow:var(--shadow-sm)}
+.btn-group .btn:not(:last-child)::after{content:"";position:absolute;right:-1px;top:18%;height:64%;width:1px;background:var(--line)}
+.btn-group .btn{position:relative}
 
 /* ===================== 状态点 / 标签 / 进度条 ===================== */
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent)}
@@ -293,9 +316,10 @@ input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);trans
   <a href="#logs" data-tab="logs"><span class="ic">📋</span><span>日志</span></a>
   <a href="#routes" data-tab="routes"><span class="ic">⚙️</span><span>路由规则</span></a>
  </nav>
- <div class="foot" style="display:flex;flex-direction:column;gap:6px">
-   <button onclick="openChangePass()" style="width:100%;text-align:left">🔒 修改密码</button>
-   <button onclick="logout()" style="width:100%;text-align:left">🚪 退出登录</button>
+ <div class="foot">
+   <button class="side-btn" onclick="openChangePass()"><span class="ic">🔒</span><span>修改密码</span></button>
+   <button class="side-btn" onclick="logout()"><span class="ic">⏻</span><span>退出登录</span></button>
+   <div class="ver" id="ver">v{{VERSION}}</div>
  </div>
 </aside>
 
@@ -476,9 +500,10 @@ window.render_providers = function(){
       html += '<td class="muted">-</td>';
       html += '<td><span class="tag '+(p.builtin?'':'on')+'>'+(p.builtin?'内置':'自建')+'</span></td>';
       html += '<td class="row-actions">';
-      html += '<span class="btn-group"><button type="button" class="btn btn-edit" data-action="edit" data-id="'+esc(p.id)+'">编辑</button>';
+      html += '<span class="actions"><span class="btn-group">';
+      html += '<button type="button" class="btn btn-edit" data-action="edit" data-id="'+esc(p.id)+'">编辑</button>';
       if(!p.builtin) html += '<button type="button" class="btn btn-delete" data-action="delete" data-id="'+esc(p.id)+'">删除</button>';
-      html += '</span></td></tr>';
+      html += '</span></span></td></tr>';
     });
     html += '</tbody></table></div></div>';
     $('#view').innerHTML = html;
