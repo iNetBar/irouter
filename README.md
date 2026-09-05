@@ -1,4 +1,4 @@
-# irouter · LLM 聚合网关 v2.3.5
+# irouter · LLM 聚合网关 v2.3.7
 
 单文件 Deno 服务：OpenAI 兼容代理 + 多供应商聚合 + Web 管理后台。
 
