@@ -52,6 +52,10 @@
   --shadow:0 6px 24px rgba(30,45,90,.08);
   --grad:linear-gradient(135deg,#4f6cf0 0%,#8b5cf6 100%);
 }
+/* 亮色主题下，表格操作按钮同步为亮色渐变（覆盖上面的暗色具体值） */
+[data-theme="light"] table .btn-edit,
+[data-theme="light"] table .btn{background:linear-gradient(135deg,#4f6cf0 0%,#8b5cf6 100%)}
+[data-theme="light"] table .btn-delete{background:#e04545}
 
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -171,31 +175,33 @@ tbody tr{transition:background .12s ease}
 tbody tr:hover{background:var(--panel-2)}
 tbody tr:last-child td{border-bottom:none}
 
-/* —— 操作按钮组：胶囊分段控件（segmented control），去掉外框感 —— */
-.actions{display:inline-flex;align-items:center;gap:6px}
+/* —— 操作按钮组：与 .primary 统一的渐变色按钮（无外框底色） —— */
+.actions{display:inline-flex;align-items:center;gap:8px}
 td.row-actions{display:flex!important;align-items:center;flex-wrap:nowrap;white-space:nowrap;padding:6px 12px!important}
 .btn-group{
-  display:inline-flex;align-items:stretch;
-  background:var(--panel-2);
-  padding:3px;
-  border-radius:999px;
-  box-shadow:inset 0 0 0 1px var(--line);
+  display:inline-flex;align-items:center;gap:8px;
+  background:transparent;   /* 去掉灰色容器底色 */
+  padding:0;
+  border-radius:0;
+  box-shadow:none;          /* 去掉外框描边 */
 }
 table .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:4px;
-  height:26px;padding:0 14px;font-size:12px;line-height:1;
-  font-weight:500;color:var(--muted);background:transparent;border:none;
-  border-radius:999px;cursor:pointer;position:static;overflow:visible;flex:0 0 auto;
-  transition:background .14s ease,color .14s ease,box-shadow .14s ease;
+  height:30px;padding:0 16px;font-size:12.5px;line-height:1;font-weight:600;
+  color:#fff;
+  background:linear-gradient(135deg,#6d8cff 0%,#a06dff 100%);  /* 与主按钮 .primary 完全一致的渐变（具体值，不依赖变量） */
+  border:none;
+  border-radius:var(--radius-sm);cursor:pointer;position:static;overflow:visible;flex:0 0 auto;
+  box-shadow:0 3px 10px rgba(109,140,255,.28);
+  transition:filter .14s ease,transform .12s ease,box-shadow .14s ease;
 }
 table .btn + .btn{margin-left:0}
-table .btn:hover{color:var(--text)}
-table .btn-edit:hover{color:var(--brand)}
-table .btn.active,table .btn:active{background:var(--bg);color:var(--brand);box-shadow:var(--shadow-sm)}
-table .btn-edit.active,table .btn-edit:active{color:var(--brand)}
-table .btn-delete:hover{color:var(--bad)}
-table .btn-delete.active,table .btn-delete:active{background:var(--bg);color:var(--bad);box-shadow:var(--shadow-sm)}
-.btn-group .btn:not(:last-child)::after{content:"";position:absolute;right:-1px;top:18%;height:64%;width:1px;background:var(--line)}
+table .btn:hover{filter:brightness(1.07);box-shadow:0 5px 16px rgba(109,140,255,.4)}
+table .btn:active{transform:scale(.96)}
+table .btn-edit{background:linear-gradient(135deg,#6d8cff 0%,#a06dff 100%)}   /* 编辑 = 品牌渐变（具体值） */
+table .btn-delete{background:#ff6b6b}   /* 删除 = 红色，便于与编辑区分 */
+table .btn-delete:hover{filter:brightness(1.08)}
+.btn-group .btn:not(:last-child)::after{content:"";display:none}  /* 不再需要分隔线 */
 .btn-group .btn{position:relative}
 
 /* ===================== 状态点 / 标签 / 进度条 ===================== */
