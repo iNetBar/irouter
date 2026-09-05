@@ -1,5 +1,12 @@
-node_modules
-.env
-*.local
-.DS_Store
+# Deno
+*.tsbuildinfo
+deno.lock
+
+# Node (本地测试用，不进部署)
+node_modules/
 *.log
+
+# OS / 编辑器
+.DS_Store
+.idea/
+.vscode/

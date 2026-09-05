@@ -2,29 +2,46 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>LLM Router · {{VERSION}}</title>
 <style>
-:root{--bg:#0f172a;--panel:#1e293b;--line:#334155;--txt:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--green:#4ade80;--yellow:#facc15;--red:#f87171}
+:root{--bg:#0f172a;--panel:#1e293b;--line:#334155;--txt:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--green:#4ade80;--yellow:#facc15;--red:#f87171;--side:#111c30}
 *{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--txt);font-size:14px}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--txt);font-size:14px;display:flex;min-height:100vh}
 a{color:var(--accent);text-decoration:none}
-header{padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:10}
-header h1{font-size:1.1rem;margin:0}
-header .ver{color:var(--muted);font-size:.8rem;margin-left:.5rem}
-.tabs{display:flex;gap:.25rem;padding:.5rem 1.5rem;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.tab{padding:.5rem 1rem;cursor:pointer;border-radius:.5rem .5rem 0 0;color:var(--muted);border:1px solid transparent}
-.tab.active{color:var(--accent);background:var(--panel);border-color:var(--line);border-bottom-color:var(--panel)}
-.pane{padding:1.5rem;display:none}.pane.active{display:block}
+
+/* ===== 侧边栏 ===== */
+.side{width:220px;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;flex-shrink:0;transition:transform .2s}
+.side .brand{padding:1rem 1.25rem;font-weight:700;font-size:1rem;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:.5rem}
+.side .brand .ver{color:var(--muted);font-size:.72rem;font-weight:400}
+.nav{padding:.5rem;display:flex;flex-direction:column;gap:.15rem;overflow:auto}
+.nav .tab{padding:.65rem .9rem;border-radius:.5rem;cursor:pointer;color:var(--muted);font-size:.9rem;display:flex;align-items:center;gap:.6rem;border:none;background:transparent;text-align:left;width:100%}
+.nav .tab:hover{background:var(--panel);color:var(--txt)}
+.nav .tab.active{background:var(--accent);color:#0f172a;font-weight:600}
+.side .foot{padding:.75rem 1.25rem;border-top:1px solid var(--line);color:var(--muted);font-size:.75rem;margin-top:auto}
+
+/* ===== 主区 ===== */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+header{padding:.75rem 1rem;display:flex;align-items:center;gap:.75rem;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:10}
+header h1{font-size:1rem;margin:0;flex:1}
+header .clock{color:var(--muted);font-size:.8rem}
+.burger{display:none;flex-direction:column;gap:5px;width:28px;height:28px;justify-content:center;cursor:pointer;background:none;border:none;padding:0}
+.burger span{display:block;width:100%;height:2px;background:var(--txt);border-radius:2px;transition:.2s}
+
+.pane{padding:1rem 1.25rem;display:none}.pane.active{display:block}
+.scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:19}
+
+/* ===== 通用组件 ===== */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:.75rem;padding:1rem;margin-bottom:1rem}
 .card h3{margin:0 0 .75rem;font-size:.95rem}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1rem}
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:.75rem;padding:1rem}
 .stat .v{font-size:1.6rem;font-weight:700;color:var(--accent)}
 .stat .l{color:var(--muted);font-size:.8rem}
 table{width:100%;border-collapse:collapse}
-th,td{text-align:left;padding:.5rem;border-bottom:1px solid var(--line);vertical-align:middle}
-th{color:var(--muted);font-weight:600;font-size:.8rem}
+th,td{text-align:left;padding:.55rem .5rem;border-bottom:1px solid var(--line);vertical-align:middle}
+th{color:var(--muted);font-weight:600;font-size:.78rem;white-space:nowrap}
 .dot{display:inline-block;width:.6rem;height:.6rem;border-radius:50%}
 .dot.g{background:var(--green)}.dot.y{background:var(--yellow)}.dot.r{background:var(--red)}
 input,select,button{font:inherit;padding:.45rem .75rem;border-radius:.5rem;border:1px solid var(--line);background:var(--bg);color:var(--txt)}
@@ -32,48 +49,76 @@ button{background:var(--accent);color:#0f172a;border:none;cursor:pointer;font-we
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
 button.danger{background:var(--red)}
 input{width:100%}
-.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end}
+.row{display:flex;gap:.75rem;flex-wrap:wrap;align-items:flex-end}
+.row>div{min-width:140px}
 .muted{color:var(--muted)}
 .alert{background:rgba(248,113,113,.15);border:1px solid var(--red);border-radius:.5rem;padding:.75rem;margin-bottom:1rem}
-.badge{display:inline-block;padding:.1rem .5rem;border-radius:999px;font-size:.75rem;background:var(--line)}
+.badge{display:inline-block;padding:.1rem .5rem;border-radius:999px;font-size:.72rem;background:var(--line)}
+.badge.builtin{background:rgba(56,189,248,.2);color:var(--accent);border:1px solid var(--accent)}
 .bar{height:.5rem;background:var(--line);border-radius:999px;overflow:hidden;min-width:80px;display:inline-block;vertical-align:middle}
 .bar>i{display:block;height:100%;background:var(--accent)}
-@media(max-width:600px){.grid{grid-template-columns:1fr}}
+.toolbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
+.toolbar .spacer{flex:1}
+.empty{text-align:center;color:var(--muted);padding:2rem 0}
+
+/* ===== 手机端 ===== */
+@media(max-width:720px){
+  .burger{display:flex}
+  .side{position:fixed;top:0;left:0;bottom:0;z-index:20;transform:translateX(-100%)}
+  .side.open{transform:translateX(0);box-shadow:4px 0 24px rgba(0,0,0,.4)}
+  .scrim.show{display:block}
+  .row>div{min-width:100%}
+  table{font-size:.82rem}
+  th,td{padding:.4rem .3rem}
+  .card{padding:.75rem}
+  .pane{padding:.75rem}
+}
 </style>
 </head>
 <body>
+<aside class="side" id="side">
+  <div class="brand">🛰️ LLM Router <span class="ver">{{VERSION}}</span></div>
+  <nav class="nav">
+    <button class="tab active" data-t="providers">📡 供应商</button>
+    <button class="tab" data-t="keys">🔑 Keys</button>
+    <button class="tab" data-t="latency">📊 延迟</button>
+    <button class="tab" data-t="usage">💰 用量</button>
+    <button class="tab" data-t="logs">📋 日志</button>
+    <button class="tab" data-t="routes">⚙️ 路由规则</button>
+    <button class="tab" data-t="settings">🔧 设置</button>
+  </nav>
+  <div class="foot">Deno + Hono</div>
+</aside>
+<div class="scrim" id="scrim"></div>
+
+<div class="main">
 <header>
-  <h1>🛰️ LLM Router <span class="ver">{{VERSION}}</span></h1>
-  <div id="clock" class="muted"></div>
+  <button class="burger" id="burger" aria-label="菜单"><span></span><span></span><span></span></button>
+  <h1 id="page-title">📡 供应商</h1>
+  <span class="clock" id="clock"></span>
 </header>
-<div class="tabs">
-  <div class="tab active" data-t="providers">📡 供应商</div>
-  <div class="tab" data-t="keys">🔑 Keys</div>
-  <div class="tab" data-t="latency">📊 延迟</div>
-  <div class="tab" data-t="usage">💰 用量</div>
-  <div class="tab" data-t="logs">📋 日志</div>
-  <div class="tab" data-t="routes">⚙️ 路由规则</div>
-</div>
 
 <div class="pane active" id="p-providers">
+  <div id="alerts-box"></div>
+  <div class="toolbar"><button class="ghost" onclick="resetBuiltin()">＋ 恢复内置供应商</button><span class="muted" id="prov-count"></span></div>
   <div class="card"><h3>添加 / 编辑供应商</h3>
     <div class="row">
       <div><label class="muted">ID</label><input id="p-id" placeholder="my-provider"></div>
       <div><label class="muted">名称</label><input id="p-name" placeholder="My Provider"></div>
       <div><label class="muted">协议</label><select id="p-proto"><option value="openai">openai</option><option value="anthropic">anthropic</option><option value="google">google</option><option value="glm">glm</option></select></div>
-      <div style="flex:1;min-width:240px"><label class="muted">Base URL</label><input id="p-base" placeholder="https://api.example.com/v1"></div>
+      <div style="flex:2;min-width:220px"><label class="muted">Base URL</label><input id="p-base" placeholder="https://api.example.com/v1"></div>
       <div><label class="muted">默认模型</label><input id="p-model" placeholder="gpt-4o-mini"></div>
       <button onclick="saveProvider()">保存</button>
     </div>
   </div>
-  <div class="card"><h3>供应商列表</h3><table><thead><tr><th>状态</th><th>ID</th><th>名称</th><th>协议</th><th>默认模型</th><th>Keys</th><th></th></tr></thead><tbody id="providers-body"></tbody></table></div>
+  <div class="card"><h3>供应商列表</h3><div style="overflow-x:auto"><table><thead><tr><th>状态</th><th>ID</th><th>名称</th><th>协议</th><th>默认模型</th><th>Keys</th><th></th></tr></thead><tbody id="providers-body"></tbody></table></div></div>
 </div>
 
 <div class="pane" id="p-keys">
   <div class="card"><h3>添加 Key</h3>
     <div class="row">
       <div><label class="muted">供应商</label><select id="k-pid"></select></div>
-      <div style="flex:1"><label class="muted">Key</label><input id="k-key" type="password" placeholder="sk-..."></div>
+      <div style="flex:1;min-width:200px"><label class="muted">Key</label><input id="k-key" type="password" placeholder="sk-..."></div>
       <div><label class="muted">标签</label><input id="k-label" placeholder="生产"></div>
       <button onclick="addKey()">添加</button>
     </div>
@@ -83,44 +128,61 @@ input{width:100%}
 
 <div class="pane" id="p-latency">
   <div class="grid" id="lat-stats"></div>
-  <div class="card"><h3>各供应商延迟 (P50 / P95 / Avg / Max / 样本)</h3><table><thead><tr><th>供应商</th><th>P50</th><th>P95</th><th>Avg</th><th>Max</th><th>样本</th></tr></thead><tbody id="lat-body"></tbody></table></div>
+  <div class="card"><h3>各供应商延迟 (P50 / P95 / Avg / Max / 样本)</h3><div style="overflow-x:auto"><table><thead><tr><th>供应商</th><th>P50</th><th>P95</th><th>Avg</th><th>Max</th><th>样本</th></tr></thead><tbody id="lat-body"></tbody></table></div></div>
 </div>
 
 <div class="pane" id="p-usage">
   <div class="grid" id="usage-stats"></div>
-  <div class="card"><h3>各供应商 Token 用量</h3><table><thead><tr><th>供应商</th><th>请求数</th><th>Input</th><th>Output</th><th>占比</th></tr></thead><tbody id="usage-body"></tbody></table></div>
+  <div class="card"><h3>各供应商 Token 用量</h3><div style="overflow-x:auto"><table><thead><tr><th>供应商</th><th>请求数</th><th>Input</th><th>Output</th><th>占比</th></tr></thead><tbody id="usage-body"></tbody></table></div></div>
 </div>
 
 <div class="pane" id="p-logs">
   <div class="card"><div class="row"><input id="log-filter" placeholder="按供应商/模型筛选..."><button onclick="loadLogs()">刷新</button></div></div>
-  <div class="card"><table><thead><tr><th>时间</th><th>模型</th><th>供应商</th><th>状态</th><th>延迟</th><th>Tokens</th></tr></thead><tbody id="logs-body"></tbody></table></div>
+  <div class="card"><div style="overflow-x:auto"><table><thead><tr><th>时间</th><th>模型</th><th>供应商</th><th>状态</th><th>延迟</th><th>Tokens</th></tr></thead><tbody id="logs-body"></tbody></table></div></div>
 </div>
 
 <div class="pane" id="p-routes">
   <div class="card"><h3>路由规则 (模型 -> 供应商优先级)</h3>
     <div class="row">
-      <div style="flex:1"><label class="muted">模型匹配 (支持 * 通配)</label><input id="r-pat" placeholder="deepseek-* 或 *gpt*"></div>
-      <div style="flex:1"><label class="muted">供应商顺序 (逗号分隔)</label><input id="r-prov" placeholder="deepseek,siliconflow,openrouter"></div>
+      <div style="flex:1;min-width:200px"><label class="muted">模型匹配 (支持 * 通配)</label><input id="r-pat" placeholder="deepseek-* 或 *gpt*"></div>
+      <div style="flex:1;min-width:200px"><label class="muted">供应商顺序 (逗号分隔)</label><input id="r-prov" placeholder="deepseek,siliconflow,openrouter"></div>
       <button onclick="addRoute()">添加规则</button>
     </div>
     <p class="muted" style="font-size:.8rem">例：<code>*gpt*</code> → openai,openrouter 表示匹配 gpt 的模型优先走 OpenAI，失败 fallback OpenRouter。</p>
   </div>
-  <div class="card"><table><thead><tr><th>匹配</th><th>供应商顺序</th><th></th></tr></thead><tbody id="routes-body"></tbody></table></div>
+  <div class="card"><div style="overflow-x:auto"><table><thead><tr><th>匹配</th><th>供应商顺序</th><th></th></tr></thead><tbody id="routes-body"></tbody></table></div></div>
+</div>
+
+<div class="pane" id="p-settings">
+  <div class="card"><h3>关于</h3>
+    <p>LLM Router · 统一代理 + 负载均衡 + 故障转移。</p>
+    <p class="muted">用法：将请求发往 <code>/v1/chat/completions</code>，通过请求头 <code>x-provider: &lt;id&gt;</code> 指定供应商，缺省按路由规则选择。鉴权：<code>Authorization: Bearer &lt;PROXY_KEY&gt;</code>。</p>
+    <p class="muted">内置供应商在首次启动时自动创建；若被误删，可在「供应商」页点「＋ 恢复内置供应商」找回。</p>
+  </div>
 </div>
 
 <script>
 const API="/admin/api";
+const PAGE_TITLES={providers:"📡 供应商",keys:"🔑 Keys",latency:"📊 延迟",usage:"💰 用量",logs:"📋 日志",routes:"⚙️ 路由规则",settings:"🔧 设置"};
 let providers=[],routes=[],latency={},usage={},logs=[];
-const $=(s)=>document.querySelector(s);
-setInterval(()=>{$('#clock').textContent=new Date().toLocaleString()},1000);
+const $=s=>document.querySelector(s);
+setInterval(()=>{$('#clock').textContent=new Date().toLocaleTimeString()},1000);
+
+// 侧边栏：移动端抽屉开关
+const side=$('#side'),scrim=$('#scrim'),burger=$('#burger');
+function closeSide(){side.classList.remove('open');scrim.classList.remove('show');}
+burger.onclick=()=>{side.classList.toggle('open');scrim.classList.toggle('show');};
+scrim.onclick=closeSide;
 
 document.querySelectorAll('.tab').forEach(t=>{
   t.onclick=()=>{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
     document.querySelectorAll('.pane').forEach(x=>x.classList.remove('active'));
     t.classList.add('active');
-    $('#p-'+t.dataset.t).classList.add('active');
+    const pane=$('#p-'+t.dataset.t);pane.classList.add('active');
+    $('#page-title').textContent=PAGE_TITLES[t.dataset.t]||'';
     refresh(t.dataset.t);
+    closeSide();
   };
 });
 
@@ -134,25 +196,28 @@ async function refresh(t){
   if(t==='logs'){logs=await api('/logs?limit=200');renderLogs();}
   if(t==='routes'){routes=await api('/routes');renderRoutes();}
 }
-function providerOptions(providers){let h='';for(const p of providers){h+='<option value="'+p.id+'">'+esc(p.name)+'</option>';}return h;}
+function providerOptions(list){let h='';for(const p of list){h+='<option value="'+p.id+'">'+esc(p.name)+'</option>';}return h;}
 function fillKeySelect(){const sel=$('#k-pid');sel.innerHTML=providerOptions(providers);}
 
 function renderProviders(){
+  $('#prov-count').textContent='共 '+providers.length+' 个供应商';
+  if(!providers.length){$('#providers-body').innerHTML='<tr><td colspan="7" class="empty">暂无供应商，点击「＋ 恢复内置供应商」初始化</td></tr>';return;}
   $('#providers-body').innerHTML=providers.map(p=>{
     const ok=p.keys.filter(k=>k.enabled).length;
     return '<tr>'
       +'<td><span class="dot '+(p.enabled?'g':'r')+'"></span></td>'
       +'<td><code>'+esc(p.id)+'</code></td>'
-      +'<td>'+esc(p.name)+'</td>'
+      +'<td>'+esc(p.name)+' '+(p.builtin?'<span class="badge builtin">内置</span>':'')+'</td>'
       +'<td><span class="badge">'+esc(p.protocol)+'</span></td>'
       +'<td><code>'+esc(p.defaultModel)+'</code></td>'
       +'<td>'+ok+'/'+p.keys.length+'</td>'
-      +'<td><button class="ghost" onclick="testProvider(\''+p.id+'\')">测试</button>'
-      +' <button class="ghost" onclick="discover(\''+p.id+'\')">探测模型</button>'
-      +' <button class="danger" onclick="delProvider(\''+p.id+'\')">删</button></td>'
+      +'<td><button class="ghost" onclick="testProvider(\''+esc(p.id)+'\')">测试</button>'
+      +' <button class="ghost" onclick="discover(\''+esc(p.id)+'\')">探测模型</button>'
+      +' <button class="danger" onclick="delProvider(\''+esc(p.id)+'\')">删</button></td>'
     +'</tr>';
   }).join('');
 }
+async function resetBuiltin(){const r=await api('/providers/reset-builtin',{method:'POST'});alert('已恢复 '+r.count+' 个内置供应商');refresh('providers');}
 async function saveProvider(){
   const b={id:$('#p-id').value.trim(),name:$('#p-name').value.trim(),protocol:$('#p-proto').value,baseUrl:$('#p-base').value.trim(),defaultModel:$('#p-model').value.trim(),isCustom:true};
   if(!b.id||!b.baseUrl)return alert('ID 和 Base URL 必填');
@@ -160,19 +225,20 @@ async function saveProvider(){
   ['p-id','p-name','p-base','p-model'].forEach(i=>$(i).value='');
   refresh('providers');
 }
-async function delProvider(id){if(!confirm('确定删除？'))return;await api('/providers/'+id,{method:'DELETE'});refresh('providers');}
+async function delProvider(id){if(!confirm('确定删除？内置供应商不可删除，可改为禁用。'))return;await api('/providers/'+id,{method:'DELETE'});refresh('providers');}
 async function testProvider(id){const r=await api('/providers/'+id+'/test',{method:'POST'});alert(JSON.stringify(r,null,2));refresh('providers');}
 async function discover(id){alert('探测模型：发送一次轻量请求，返回的模型列表会合并进配置（需上游 /models 支持）。当前已记录默认模型。');}
 
 function renderKeys(){
+  if(!providers.length){$('#keys-list').innerHTML='<div class="empty">尚无供应商</div>';return;}
   $('#keys-list').innerHTML=providers.map(p=>{
     if(!p.keys.length)return '<div class="card muted">'+esc(p.name)+'：无 Key</div>';
-    return '<div class="card"><h3>'+esc(p.name)+' <span class="muted">('+p.id+')</span></h3><table><thead><tr><th>Key</th><th>标签</th><th>状态</th><th>失败</th><th></th></tr></thead><tbody>'
+    return '<div class="card"><h3>'+esc(p.name)+' <span class="muted">('+esc(p.id)+')</span></h3><div style="overflow-x:auto"><table><thead><tr><th>Key</th><th>标签</th><th>状态</th><th>失败</th><th></th></tr></thead><tbody>'
       +p.keys.map(k=>'<tr><td><code>'+esc(k.key)+'</code></td><td>'+esc(k.label||'')+'</td>'
         +'<td>'+(k.enabled?'<span class="dot g"></span> 正常':'<span class="dot r"></span> 已摘除')+'</td>'
         +'<td>'+(k.failCount>=3?'<span style="color:var(--red)">⚠️ '+k.failCount+'</span>':k.failCount)+'</td>'
-        +'<td>'+(k.enabled?'':'<button class="ghost" onclick="recoverKey(\''+p.id+'\',\''+k.id+'\')">恢复</button>')+'</td></tr>').join('')
-    +'</tbody></table></div>';
+        +'<td>'+(k.enabled?'':'<button class="ghost" onclick="recoverKey(\''+esc(p.id)+'\',\''+esc(k.id)+'\')">恢复</button>')+'</td></tr>').join('')
+    +'</tbody></table></div></div>';
   }).join('');
 }
 async function addKey(){const id=$('#k-pid').value,key=$('#k-key').value.trim(),label=$('#k-label').value.trim();if(!key)return;await api('/providers/'+id+'/keys',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key,label})});$('#k-key').value='';refresh('keys');}
@@ -194,7 +260,7 @@ function renderLogs(){
 async function loadLogs(){logs=await api('/logs?limit=200');renderLogs();}
 
 function renderRoutes(){
-  $('#routes-body').innerHTML=routes.map(r=>'<tr><td><code>'+esc(r.pattern)+'</code></td><td>'+r.providers.map(p=>'<span class="badge">'+esc(p)+'</span>').join(' → ')+'</td><td><button class="danger" onclick="delRoute(\''+r.id+'\')">删</button></td></tr>').join('');
+  $('#routes-body').innerHTML=routes.map(r=>'<tr><td><code>'+esc(r.pattern)+'</code></td><td>'+r.providers.map(p=>'<span class="badge">'+esc(p)+'</span>').join(' → ')+'</td><td><button class="danger" onclick="delRoute(\''+esc(r.id)+'\')">删</button></td></tr>').join('');
 }
 async function addRoute(){const pattern=$('#r-pat').value.trim(),providers=$('#r-prov').value.trim().split(/[,\s]+/).filter(Boolean);if(!pattern||!providers.length)return alert('请填写完整');await api('/routes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pattern,providers})});$('#r-pat').value='';$('#r-prov').value='';refresh('routes');}
 async function delRoute(id){await api('/routes/'+id,{method:'DELETE'});refresh('routes');}
