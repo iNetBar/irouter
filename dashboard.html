@@ -5,7 +5,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>irouter · LLM 网关</title>
 <style>
-:root{--bg:#0f1115;--panel:#171a21;--line:#262b36;--txt:#e6e6e6;--muted:#8b93a7;--brand:#7c9cff;--ok:#3ddc97;--warn:#ffb454;--bad:#ff6b6b;--chip:#20252f;}
+/* ============ 主题变量 ============ */
+:root,
+[data-theme="dark"]{
+  --bg:#0f1115;--panel:#171a21;--line:#262b36;--txt:#e6e6e6;--muted:#8b93a7;
+  --brand:#7c9cff;--ok:#3ddc97;--warn:#ffb454;--bad:#ff6b6b;--chip:#20252f;
+  --nav-bg:#171a21;--nav-hover:#20252f;--input-bg:#0f1218;
+}
+[data-theme="light"]{
+  --bg:#f5f6f8;--panel:#ffffff;--line:#e3e6ec;--txt:#1a1d24;--muted:#6b7280;
+  --brand:#4f74e8;--ok:#12a16a;--warn:#d98212;--bad:#e04545;--chip:#eef0f4;
+  --nav-bg:#ffffff;--nav-hover:#f0f2f6;--input-bg:#fafbfc;
+}
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--txt);-webkit-text-size-adjust:100%;overflow-x:hidden}
 a{color:inherit}
@@ -13,23 +24,24 @@ button{font:inherit;cursor:pointer;border:none;border-radius:8px;padding:7px 13p
 button:hover{filter:brightness(1.15)}
 button.primary{background:var(--brand);color:#0b0f1a;font-weight:600}
 button.danger{background:var(--bad);color:#fff}
-input,select,textarea{font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:#0f1218;color:var(--txt);width:100%;max-width:420px}
+input,select,textarea{font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--input-bg);color:var(--txt);width:100%;max-width:420px}
 input:focus,select,textarea:focus{outline:none;border-color:var(--brand)}
 label{display:block;margin:10px 0 4px;color:var(--muted)}
-.side{position:fixed;top:0;left:0;bottom:0;width:220px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:30;transform:translateX(0);transition:transform .2s}
+.side{position:fixed;top:0;left:0;bottom:0;width:220px;background:var(--nav-bg);border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:30;transform:translateX(0);transition:transform .2s}
 .side .brand{padding:18px 16px;font-weight:700;font-size:16px;border-bottom:1px solid var(--line)}
 .side .brand small{display:block;color:var(--muted);font-weight:400;font-size:11px;margin-top:2px}
 .nav{flex:1;padding:8px}
 .nav a{display:block;padding:9px 12px;border-radius:8px;color:var(--muted);text-decoration:none;margin:2px 0}
-.nav a:hover{background:var(--chip);color:var(--txt)}
-.nav a.active{background:var(--brand);color:#0b0f1a;font-weight:600}
+.nav a:hover{background:var(--nav-hover);color:var(--txt)}
+.nav a.active{background:var(--brand);color:#fff;font-weight:600}
 .side .foot{padding:12px 16px;color:var(--muted);font-size:11px;border-top:1px solid var(--line)}
 .main{margin-left:220px;min-height:100vh}
-.header{position:sticky;top:0;background:rgba(15,17,21,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px;z-index:20}
+.header{position:sticky;top:0;background:rgba(127,127,127,.15);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px;z-index:20}
 .burger{display:none;flex-direction:column;gap:4px;padding:6px;background:transparent}
 .burger span{width:20px;height:2px;background:var(--txt);border-radius:2px;display:block}
 .header h1{font-size:15px;margin:0;font-weight:600;flex:1}
 .header .clock{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.theme-btn{background:var(--chip);border-radius:50%;width:34px;height:34px;padding:0;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;margin-left:auto}
 .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:25}
 .scrim.on{display:block}
 .wrap{padding:16px;max-width:1200px}
@@ -39,7 +51,7 @@ label{display:block;margin:10px 0 4px;color:var(--muted)}
 .muted{color:var(--muted)}
 table{width:100%;border-collapse:collapse;font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
-th{color:var(--muted);font-weight:600;background:#1b1f28}
+th{color:var(--muted);font-weight:600;background:var(--nav-hover)}
 tbody tr:last-child td{border-bottom:none}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%}
 .g{background:var(--ok)}.r{background:var(--bad)}.y{background:var(--warn)}
@@ -73,6 +85,42 @@ tbody tr:last-child td{border-bottom:none}
 
 <div class="scrim" id="scrim"></div>
 
+<!-- ================= 登录页（默认隐藏，JS 校验 session 后决定是否显示） ================= -->
+<div id="login-page" style="position:fixed;inset:0;z-index:200;background:var(--bg);display:none;align-items:center;justify-content:center;padding:16px">
+ <form id="login-form" class="card" style="width:100%;max-width:360px;margin:0;box-shadow:0 12px 40px rgba(0,0,0,.35)" onsubmit="return false">
+  <div style="text-align:center;margin-bottom:16px">
+   <div style="font-size:26px">⚡</div>
+   <h2 style="margin:4px 0 2px;font-size:17px">irouter 管理后台</h2>
+   <div class="muted" style="font-size:12px">LLM 聚合网关 · v{{VERSION}}</div>
+  </div>
+  <label>用户名</label>
+  <input id="login_user" type="text" autocomplete="username" value="admin" required>
+  <label>密码</label>
+  <input id="login_pass" type="password" autocomplete="current-password" placeholder="默认密码 admin123" required>
+  <div id="login_err" class="alert" style="display:none;margin-top:12px"></div>
+  <button id="login_btn" class="primary" style="width:100%;margin-top:14px;padding:10px;font-size:14px">登 录</button>
+  <p class="muted" style="font-size:11px;text-align:center;margin-top:14px;line-height:1.6">
+   首次登录请使用默认密码 <b>admin123</b><br>登录后请在左下角「修改密码」
+  </p>
+ </form>
+</div>
+
+<!-- ================= 修改密码弹窗 ================= -->
+<div class="modal" id="changePassModal">
+ <div class="card" style="max-width:400px;width:100%;margin:0">
+  <h2 style="margin:0 0 12px">修改后台密码</h2>
+  <label>原密码</label>
+  <input id="cp_old" type="password" autocomplete="current-password">
+  <label>新密码（至少 6 位）</label>
+  <input id="cp_new" type="password" autocomplete="new-password">
+  <div id="cp_err" class="alert" style="display:none;margin-top:10px"></div>
+  <div class="row" style="margin-top:14px;justify-content:flex-end">
+   <button onclick="closeChangePass()">取消</button>
+   <button class="primary" onclick="submitChangePass()">确认修改</button>
+  </div>
+ </div>
+</div>
+
 <aside class="side" id="side">
  <div class="brand">⚡ irouter<small>LLM 聚合网关 v{{VERSION}}</small></div>
  <nav class="nav" id="nav">
@@ -83,7 +131,10 @@ tbody tr:last-child td{border-bottom:none}
   <a href="#logs" data-tab="logs">📋 日志</a>
   <a href="#routes" data-tab="routes">⚙️ 路由规则</a>
  </nav>
- <div class="foot">自建 / vLLM / Ollama 兼容 OpenAI 协议即可接入</div>
+ <div class="foot" style="display:flex;flex-direction:column;gap:6px">
+   <button onclick="openChangePass()" style="width:100%;text-align:left">🔒 修改密码</button>
+   <button onclick="logout()" style="width:100%;text-align:left">🚪 退出登录</button>
+ </div>
 </aside>
 
 <div class="main">
@@ -91,6 +142,7 @@ tbody tr:last-child td{border-bottom:none}
   <button class="burger" id="burger" aria-label="菜单"><span></span><span></span><span></span></button>
   <h1 id="pageTitle">供应商</h1>
   <span class="clock" id="clock"></span>
+  <button id="themeBtn" class="theme-btn" title="切换亮色/暗色" aria-label="切换主题">🌙</button>
  </div>
  <div class="wrap" id="view"></div>
 </div>
@@ -107,7 +159,7 @@ window.closeModal = function(){ $('#modal').classList.remove('on'); };
 window.toast = function(msg, kind){
   var d = document.createElement('div');
   d.textContent = msg;
-  d.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#20252f;color:#fff;padding:9px 16px;border-radius:8px;z-index:99;font-size:13px;border:1px solid '+ (kind==='err'?'#ff6b6b':'#7c9cff');
+  d.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel);color:var(--txt);padding:9px 16px;border-radius:8px;z-index:99;font-size:13px;border:1px solid '+ (kind==='err'?'var(--bad)':'var(--brand)');
   document.body.appendChild(d);
   setTimeout(function(){ d.remove(); }, 2400);
 };
@@ -163,6 +215,36 @@ function initNav(){
     if(history.replaceState) history.replaceState(null, '', '#'+tab);
   });
 }
+
+// ---------- 主题切换（亮色 / 暗色）----------
+window.applyTheme = function(theme){
+  document.documentElement.setAttribute('data-theme', theme);
+  var btn = $('#themeBtn');
+  if(btn) btn.textContent = (theme==='light') ? '🌙' : '☀️';
+  try { localStorage.setItem('irouter_theme', theme); } catch(e){}
+};
+
+window.toggleTheme = function(){
+  var cur = document.documentElement.getAttribute('data-theme') || 'dark';
+  window.applyTheme(cur==='light' ? 'dark' : 'light');
+};
+
+function initTheme(){
+  var saved = null;
+  try { saved = localStorage.getItem('irouter_theme'); } catch(e){}
+  // 优先级：用户保存 > 系统偏好 > 默认暗色
+  var theme = saved || (window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  window.applyTheme(theme);
+  var btn = $('#themeBtn');
+  if(btn) btn.addEventListener('click', window.toggleTheme);
+  // 系统主题变化自动跟随（仅当用户未手动设置时生效）
+  if(window.matchMedia){
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(e){
+      var s = null; try { s = localStorage.getItem('irouter_theme'); } catch(err){}
+      if(!s) window.applyTheme(e.matches ? 'light' : 'dark');
+    });
+  }
+};
 
 // ---------- 时钟 ----------
 function tickClock(){
@@ -261,7 +343,7 @@ window.saveProvider = function(id){
   var path = '/providers' + (id ? '/'+encodeURIComponent(id) : '');
   window.api(path, {method:method, body:data}).then(function(){
     window.toast('已保存'); closeModal(); window.render_providers();
-  }).catch(function(err){ window.toast(err.message,'err'); });
+  }).catch(function(err){ window.toast('保存失败：'+err.message,'err'); console.error(err); });
 };
 
 window.deleteProvider = function(id){
@@ -423,25 +505,134 @@ window.deleteRoute = function(i){
 };
 
 // ===================================================================
-// 启动
+//  后台登录 / Session / 改密
 // ===================================================================
-function boot(){
-  initBurger();   // 三道杠
-  initNav();      // 菜单点击（事件委托）
+window.fetchWithAuth = function(url, opts){
+  opts = opts || {};
+  return fetch(url, opts).then(function(r){
+    if(r.status === 401){
+      window.location.href = '/admin?login';
+      throw new Error('未登录');
+    }
+    return r;
+  });
+};
+
+// 所有后台 API 请求走 fetchWithAuth（401 自动跳登录页）
+window.api = function(path, opts){
+  opts = opts || {};
+  return window.fetchWithAuth('/admin/api' + path, {
+    method: opts.method || 'GET',
+    headers: opts.body ? {'Content-Type':'application/json'} : {},
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  }).then(function(r){
+    if(!r.ok) return r.json().then(function(e){ throw new Error(e.error || ('HTTP '+r.status)); }, function(){ throw new Error('HTTP '+r.status); });
+    return r.json();
+  });
+};
+
+// ---------- 登录 ----------
+function bindLogin(){
+  var form = $('#login-form');
+  if(!form) return;
+  var btn = $('#login_btn');
+  form.addEventListener('submit', function(e){ e.preventDefault(); doLogin(); });
+  btn && btn.addEventListener('click', doLogin);
+}
+function doLogin(){
+  var user = ($('#login_user').value||'').trim();
+  var pass = $('#login_pass').value || '';
+  var err = $('#login_err');
+  var btn = $('#login_btn');
+  if(!user || !pass){ err.textContent = '请输入用户名和密码'; err.style.display = 'block'; return; }
+  err.style.display = 'none';
+  btn.disabled = true; btn.textContent = '登录中…';
+  fetch('/admin/api/auth/login', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({username: user, password: pass})
+  }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+    .then(function(res){
+      if(res.ok && res.d && res.d.ok){
+        window.toast('登录成功');
+        $('#login-page').style.display = 'none';
+        bootApp();
+      } else {
+        err.textContent = (res.d && res.d.error) || '登录失败';
+        err.style.display = 'block';
+      }
+    }).catch(function(e){
+      err.textContent = '网络错误：' + (e&&e.message||e);
+      err.style.display = 'block';
+    }).finally(function(){
+      btn.disabled = false; btn.textContent = '登 录';
+    });
+}
+
+// ---------- 登出 ----------
+window.logout = function(){
+  fetch('/admin/api/auth/logout', {method:'POST'}).finally(function(){
+    window.location.href = '/admin?login';
+  });
+};
+
+// ---------- 改密 ----------
+window.openChangePass = function(){ var m = $('#changePassModal'); if(m) m.classList.add('on'); };
+window.closeChangePass = function(){ var m = $('#changePassModal'); if(m) m.classList.remove('on'); };
+window.submitChangePass = function(){
+  var oldP = $('#cp_old').value || '';
+  var newP = $('#cp_new').value || '';
+  var err = $('#cp_err');
+  if(!oldP || !newP){ err.textContent = '请填写完整'; err.style.display = 'block'; return; }
+  if(newP.length < 6){ err.textContent = '新密码至少 6 位'; err.style.display = 'block'; return; }
+  err.style.display = 'none';
+  window.api('/auth/change-pass', {method:'POST', body:{oldPass: oldP, newPass: newP}})
+    .then(function(d){
+      window.toast((d&&d.message)||'密码已更新，请重新登录');
+      window.closeChangePass();
+      setTimeout(window.logout, 1200);
+    }).catch(function(e){ err.textContent = e.message; err.style.display = 'block'; });
+};
+
+// ---------- 入口：先校验登录态 ----------
+function initAuth(){
+  var loginPage = $('#login-page');
+  if(!loginPage) { bootApp(); return; }
+  fetch('/admin/api/auth/me', {headers: {}})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.loggedIn){
+        loginPage.style.display = 'none';
+        bootApp();
+      } else {
+        loginPage.style.display = 'flex';
+      }
+    }).catch(function(){
+      // 即使 /auth/me 失败（例如首次部署后端已设 cookie 保护），也显示登录页让用户输入
+      if(loginPage) loginPage.style.display = 'flex';
+    });
+}
+
+// 把原 boot 改名为 bootApp，仅在校验通过后调用一次
+window.bootApp = function(){
+  if(window.__booted) return;
+  window.__booted = true;
+  initTheme();
+  initBurger();
+  initNav();
+  bindLogin();
   tickClock();
   setInterval(tickClock, 30000);
-
-  // 根据 hash 加载对应 tab
   var hash = (location.hash||'').replace('#','');
   var tab = ['providers','keys','latency','usage','logs','routes'].indexOf(hash) >= 0 ? hash : 'providers';
   window.loadTab(tab);
-}
+};
 
-// DOM 就绪后启动（兼容脚本放在 <body> 末尾的情况）
+// DOM 就绪后先做认证，再决定是否启动后台
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot);
+  document.addEventListener('DOMContentLoaded', initAuth);
 } else {
-  boot();
+  initAuth();
 }
 </script>
 </body>

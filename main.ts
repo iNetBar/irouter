@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.2.0";
+const VERSION = "2.3.2";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -33,6 +33,8 @@ const ENV = {
   LOG_RETENTION_HOURS: Number(Deno.env.get("LOG_RETENTION_HOURS") || "168"),
   ADMIN_USER: Deno.env.get("ADMIN_USER") || "admin",
   ADMIN_PASS: Deno.env.get("ADMIN_PASS") || "",
+  DEFAULT_ADMIN_PASS: Deno.env.get("DEFAULT_ADMIN_PASS") || "admin123",
+  SESSION_SECRET: Deno.env.get("SESSION_SECRET") || "irouter-session-secret-change-me",
 };
 
 // ---------- 内置供应商目录 (完整) ----------
@@ -81,6 +83,17 @@ async function getKv(): Promise<Deno.Kv | null> {
   try { _kv = await Deno.openKv(); } catch { _kv = null; }
   return _kv;
 }
+
+// 启动时从 KV 恢复已修改的管理员密码（登录后改密会持久化到这里）
+(async () => {
+  const kv = await getKv();
+  if (kv) {
+    try {
+      const stored = await kv.get<{ password: string }>(["admin", "password"]);
+      if (stored.value?.password) (ENV as any).ADMIN_PASS = stored.value.password;
+    } catch {}
+  }
+})();
 
 // =====================================================================
 //  配置中心
@@ -420,19 +433,101 @@ function normalizeResponse(protocol: Proto, payload: any, model: string) {
 }
 
 // =====================================================================
-//  鉴权
+//  鉴权（后台登录 + API session）
+//  --------------------------------------------------------------------
+//  设计:
+//  1. 后台默认密码由 DEFAULT_ADMIN_PASS 提供 (默认 "admin123"),
+//     管理员登录后可调用 /admin/api/auth/change-pass 修改为新密码。
+//     若环境变量 ADMIN_PASS 已设置，则优先使用 ADMIN_PASS (兼容老部署)。
+//  2. 登录成功后签发一个 HttpOnly cookie: "irouter_sid"，服务端用
+//     HMAC-SHA256 校验 (constant-time compare)，无需引入额外依赖。
+//  3. checkAuth 同时支持: session cookie (后台) / Bearer PROXY_KEY (API)。
 // =====================================================================
-function checkAuth(req: Request): boolean {
-  const auth = req.headers.get("authorization") || "";
-  const provided = auth.replace(/^Bearer\s+/i, "");
-  if (ENV.PROXY_KEY.length || PKM.keys.length) {
-    if (!provided) return false;
-    if (PKM.keys.length) { const v = PKM.validate(provided, undefined); if (v.ok) return true; }
-    if (ENV.PROXY_KEY.length && ENV.PROXY_KEY.includes(provided)) return true;
+function b64url(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function fromB64url(s: string): Uint8Array {
+  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
+  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + pad);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function sha256Hex(text: string): Promise<string> {
+  const buf = new TextEncoder().encode(text);
+  const h = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function getAdminPassword(): string {
+  // 环境变量 ADMIN_PASS 优先；否则回退到默认密码
+  return ENV.ADMIN_PASS || ENV.DEFAULT_ADMIN_PASS;
+}
+// 生成登录 session token (HMAC 签名: user|exp|sig)
+async function createSession(user: string): Promise<string> {
+  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7; // 7 天
+  const payload = `${user}|${exp}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(ENV.SESSION_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return b64url(new TextEncoder().encode(payload + "|" + b64url(sig)));
+}
+async function verifySession(token: string | null | undefined): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const decoded = new TextDecoder().decode(fromB64url(token));
+    const parts = decoded.split("|");
+    if (parts.length !== 3) return false;
+    const [user, expStr, sigB64] = parts;
+    const exp = Number(expStr);
+    if (!user || !exp || !sigB64) return false;
+    if (exp < Math.floor(Date.now() / 1000)) return false; // 过期
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(ENV.SESSION_SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const expect = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${user}|${exp}`));
+    const got = fromB64url(sigB64);
+    // constant-time compare
+    const a = new Uint8Array(expect), b = got;
+    if (a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+    return diff === 0 && user === ENV.ADMIN_USER;
+  } catch {
     return false;
   }
-  return true;
 }
+function getSessionCookie(req: Request): string | null {
+  const cookie = req.headers.get("cookie") || "";
+  const m = cookie.match(/(?:^|;\s*)irouter_sid=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+// 统一鉴权: 后台 session 或 API Bearer key
+async function checkAuth(req: Request): Promise<boolean> {
+  // 1) 后台登录 session
+  if (await verifySession(getSessionCookie(req))) return true;
+  // 2) API Bearer (PROXY_KEY / ProxyKey)
+  const auth = req.headers.get("authorization") || "";
+  const provided = auth.replace(/^Bearer\s+/i, "");
+  if (provided) {
+    if (PKM.keys.length) { const v = PKM.validate(provided, undefined); if (v.ok) return true; }
+    if (ENV.PROXY_KEY.length && ENV.PROXY_KEY.includes(provided)) return true;
+  }
+  return false;
+}
+// 同步版：用于 Hono 路由里已 await CONFIG.ready 之后；session 校验本身是异步，这里保留 async
+function adminAuth(c: any): Promise<boolean> { return checkAuth(c.req.raw); }
 
 // =====================================================================
 //  健康检查 (后台定时)
@@ -559,11 +654,67 @@ app.post("/v1/chat/completions", async (c) => {
 // =====================================================================
 //  Admin API
 // =====================================================================
-function adminAuth(c: any): boolean { return checkAuth(c.req.raw); }
+async function adminAuthGuard(c: any): Promise<Response | null> {
+  if (await checkAuth(c.req.raw)) return null;
+  return c.json({ error: "unauthorized" }, 401);
+}
+
+// 登录 / 登出 / 改密（不需要鉴权，或与其它管理接口分开处理）
+app.post("/admin/api/auth/login", async (c) => {
+  const b = await c.req.json().catch(() => ({})) as { username?: string; password?: string };
+  const user = (b.username || "").trim();
+  const pass = b.password || "";
+  if (user !== ENV.ADMIN_USER || pass !== getAdminPassword()) {
+    return c.json({ ok: false, error: "用户名或密码错误" }, 401);
+  }
+  const sid = await createSession(user);
+  return c.json(
+    { ok: true },
+    {
+      headers: {
+        "Set-Cookie":
+          `irouter_sid=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`,
+      },
+    },
+  );
+});
+
+app.post("/admin/api/auth/logout", (c) => {
+  return c.json({ ok: true }, {
+    headers: {
+      "Set-Cookie": `irouter_sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+    },
+  });
+});
+
+app.post("/admin/api/auth/change-pass", async (c) => {
+  const deny = await adminAuthGuard(c); if (deny) return deny;
+  const b = await c.req.json().catch(() => ({})) as { oldPass?: string; newPass?: string };
+  const oldPass = b.oldPass || "";
+  const newPass = (b.newPass || "").trim();
+  if (oldPass !== getAdminPassword()) return c.json({ ok: false, error: "原密码不正确" }, 401);
+  if (newPass.length < 6) return c.json({ ok: false, error: "新密码至少 6 位" }, 400);
+  // 写入环境变量等价存储 (KV 持久化，重启不丢)
+  const kv = await getKv();
+  if (kv) {
+    await kv.set(["admin", "password"], { password: newPass, updatedAt: Date.now() });
+  }
+  // 让 getAdminPassword() 立即读到新值
+  (ENV as any).ADMIN_PASS = newPass;
+  return c.json({ ok: true, message: "密码已更新，请使用新密码重新登录" });
+});
+
+app.get("/admin/api/auth/me", async (c) => {
+  const sid = getSessionCookie(c.req.raw);
+  const ok = await verifySession(sid);
+  return c.json({ loggedIn: ok, user: ok ? ENV.ADMIN_USER : null });
+});
 
 // 供应商 CRUD
 app.get("/admin/api/providers", async (c) => { await CONFIG.ready; return c.json(CONFIG.list()); });
+app.get("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const p = CONFIG.providers.get(c.req.param("id")); if (!p) return c.json({ error: "not found" }, 404); return c.json(p); });
 app.post("/admin/api/providers", async (c) => { await CONFIG.ready; const b = await c.req.json(); return c.json(CONFIG.upsert(b)); });
+app.put("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const b = await c.req.json(); b.id = c.req.param("id"); return c.json(CONFIG.upsert(b)); });
 app.delete("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const r = CONFIG.delete(c.req.param("id")); if (r && (r as any).error) return c.json(r, 400); return c.json(r); });
 // 一键恢复全部内置供应商（前端「＋ 恢复内置供应商」按钮调用）
 app.post("/admin/api/providers/reset-builtin", async (c) => { await CONFIG.ready; return c.json(CONFIG.resetBuiltin()); });
@@ -624,8 +775,9 @@ async function loadDashboard() {
 }
 
 app.get("/admin", async (c) => {
-  if (!adminAuth(c)) return c.text("Unauthorized", 401);
   await loadDashboard();
+  // 未登录：仍返回带登录页的 HTML（登录页默认显示，JS 校验 session 后自动隐藏）
+  // 已登录：直接看到后台。无论哪种都返回 200，由前端 /auth/me 决定显示登录页还是主界面。
   const html = DASHBOARD_TEMPLATE.replace(/\{\{VERSION\}\}/g, VERSION);
   return c.html(html);
 });
