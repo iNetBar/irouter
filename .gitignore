@@ -1,13 +1,5 @@
-# Deno
-deno.lock
+node_modules
 .env
-.env.deploy
-*.log
-
-# IDE
-.vscode/
-.idea/
-
-# OS
+*.local
 .DS_Store
-Thumbs.db
+*.log

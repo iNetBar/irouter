@@ -703,7 +703,8 @@ async function refresh(t){
   if(t==='logs'){logs=await api('/logs?limit=200');renderLogs();}
   if(t==='routes'){routes=await api('/routes');renderRoutes();}
 }
-function fillKeySelect(){const sel=$('#k-pid');sel.innerHTML=providers.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');}
+function providerOptions(providers){let h='';for(const p of providers){h+='<option value="'+p.id+'">'+esc(p.name)+'</option>';}return h;}
+function fillKeySelect(){const sel=$('#k-pid');sel.innerHTML=providerOptions(providers);}
 
 function renderProviders(){
   $('#providers-body').innerHTML=providers.map(p=>{

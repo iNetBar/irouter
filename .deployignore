@@ -1,0 +1,19 @@
+# 测试/校验脚本（仅本地验证用，不进入 Deno Deploy 构建产物）
+*.cjs
+package.json
+check.cjs
+test_full.cjs
+integration_full.cjs
+README.md
+pack.sh
+pack_final.sh
+check_files.sh
+copy_to_root.sh
+create_and_push.sh
+init_git.sh
+setup_remote.sh
+root_readme.md
+final_verify.cjs
+*.zip
+.git
+.gitignore
