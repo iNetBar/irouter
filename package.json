@@ -1,0 +1,11 @@
+{
+  "name": "irouter",
+  "version": "2.2.0",
+  "description": "LLM Router proxy with full admin dashboard, multi-provider routing, protocol conversion, health monitoring, key auto-recovery, latency stats, audit logs, route rules, multi-proxy-key auth, webhook alerts, config import/export",
+  "main": "main.ts",
+  "scripts": {
+    "test": "node test_full.cjs && node integration_full.cjs",
+    "check": "node check.cjs"
+  },
+  "license": "MIT"
+}

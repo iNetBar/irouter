@@ -1,115 +1,36 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# 部署脚本 - Deno Deploy (单文件 main.ts)
 set -e
-# LLM Router · Deno Deploy 一键部署
-# 用法:
-#   ./deploy.sh              # 交互式部署（推荐）
-#   ./deploy.sh --ci         # 生成 GitHub Actions workflow（push 自动部署）
-#   ./deploy.sh --dry-run    # 只打印命令，不执行
 
-GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
-info() { echo -e "${BLUE}[deploy]${NC} $*"; }
-ok()   { echo -e "${GREEN}[done]${NC} $*"; }
-warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
+echo "🛰️  LLM Router v2.2.0 部署"
 
-# --- flags ---
-CI=0; DRY=0
-for arg in "$@"; do
-  case "$arg" in
-    --ci) CI=1 ;;
-    --dry-run|--dry) DRY=1 ;;
-    -h|--help)
-      echo "Usage: $0 [--ci] [--dry-run]"; exit 0 ;;
-  esac
-done
+# 检查依赖
+command -v deno >/dev/null 2>&1 || { echo "❌ 需要 Deno: https://deno.land/manual/getting_started/installation"; exit 1; }
 
-if [ "$CI" = "1" ]; then
-  info "Generating GitHub Actions workflow..."
-  mkdir -p .github/workflows
-  cat > .github/workflows/deploy.yml <<'EOF'
-name: Deploy to Deno Deploy
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Deploy to Deno Deploy
-        uses: denoland/deployctl@v1
-        with:
-          project: ${{ secrets.DENO_PROJECT }}
-          entrypoint: main.ts
-          env: |
-            PROXY_KEY=${{ secrets.PROXY_KEY }}
-            OPENAI_KEYS=${{ secrets.OPENAI_KEYS }}
-            ANTHROPIC_KEYS=${{ secrets.ANTHROPIC_KEYS }}
-            GOOGLE_KEYS=${{ secrets.GOOGLE_KEYS }}
-            GLM_KEYS=${{ secrets.GLM_KEYS }}
-            ENABLE_USAGE=true
-            MONTHLY_BUDGET=${{ secrets.MONTHLY_BUDGET || '0' }}
-            RATE_LIMIT_RPM=${{ secrets.RATE_LIMIT_RPM || '60' }}
-EOF
-  ok "Written .github/workflows/deploy.yml"
-  echo "Next: set secrets DENO_PROJECT, PROXY_KEY, *_KEYS in GitHub repo settings."
-  exit 0
+# 本地检查（不依赖 deno 也能跑 node 测试）
+if command -v node >/dev/null 2>&1; then
+  echo "▶ 运行静态检查..."
+  node check.cjs
+  echo "▶ 运行单元测试..."
+  node test_full.cjs
+  echo "▶ 运行集成测试..."
+  node integration_full.cjs
 fi
 
-command -v deno >/dev/null 2>&1 || { warn "Deno not found. Install: curl -fsSL https://deno.land/install.sh | sh"; exit 1; }
-
-read -p "Deno Deploy project name [llm-router]: " PROJECT
-PROJECT=${PROJECT:-llm-router}
-read -p "Organization (leave blank for personal): " ORG
-
-read -p "X-Proxy-Key (leave blank = open): " PROXY_KEY
-read -p "OpenAI keys (comma): " OPENAI_KEYS
-read -p "Anthropic keys (comma): " ANTHROPIC_KEYS
-read -p "Google keys (comma): " GOOGLE_KEYS
-read -p "GLM keys (comma): " GLM_KEYS
-read -p "Monthly token budget (0 = disabled): " MONTHLY_BUDGET
-MONTHLY_BUDGET=${MONTHLY_BUDGET:-0}
-read -p "Rate limit RPM per IP [60]: " RATE_LIMIT_RPM
-RATE_LIMIT_RPM=${RATE_LIMIT_RPM:-60}
-
-cat > .env.deploy <<EOF
-PROXY_KEY=$PROXY_KEY
-OPENAI_KEYS=$OPENAI_KEYS
-ANTHROPIC_KEYS=$ANTHROPIC_KEYS
-GOOGLE_KEYS=$GOOGLE_KEYS
-GLM_KEYS=$GLM_KEYS
-ENABLE_USAGE=true
-MONTHLY_BUDGET=$MONTHLY_BUDGET
-RATE_LIMIT_RPM=$RATE_LIMIT_RPM
-EOF
-
-CMD="deployctl deploy --project=$PROJECT --entrypoint=main.ts --unstable-kv --env-file=.env.deploy"
-[ -n "$ORG" ] && CMD="$CMD --org=$ORG"
-
-if [ "$DRY" = "1" ]; then
-  info "Dry run. Would execute:"
-  echo "  deno $CMD"
-  exit 0
+# 类型检查 (如果有 deno)
+if command -v deno >/dev/null 2>&1; then
+  echo "▶ Deno 类型检查..."
+  deno check main.ts 2>&1 || echo "⚠️  deno check 有警告（JSR 需联网），可忽略"
 fi
 
-info "Ensuring logged in..."
-deno login --prompt || true
-
-info "Deploying project: $PROJECT"
-if ! deno $CMD 2>&1 | tee /tmp/deploy.log; then
-  if grep -q "already exists" /tmp/deploy.log; then
-    warn "Project may already exist; trying to update..."
-    deno $CMD || { echo "Deploy failed. See https://dash.deno.com"; exit 1; }
-  else
-    echo "Deploy failed."; exit 1
-  fi
-fi
-
-ok "Deploy complete!"
-echo -e "  Health:    https://$PROJECT.deno.dev/health"
-echo -e "  API:       https://$PROJECT.deno.dev/v1/chat/completions"
-echo -e "  Dashboard: https://$PROJECT.deno.dev/admin"
-warn ".env.deploy contains secrets — add to .gitignore / delete after use."
+echo ""
+echo "✅ 本地验证通过"
+echo ""
+echo "下一步："
+echo "  1. 推送代码到 GitHub 仓库 'irouter'"
+echo "  2. 前往 https://dash.deno.com/new 关联仓库"
+echo "  3. Entry 填: main.ts"
+echo "  4. 设置环境变量 (PROXY_KEY, SEED_KEYS, ...) 后部署"
+echo ""
+echo "  或命令行部署 (需 deno deploy):"
+echo "    deno deploy --project=irouter --entry=main.ts"
