@@ -1,13 +1,10 @@
-# 测试脚本与本地校验工具不进入部署包
+# 排除测试脚本与验证工具（不打入部署包）
 *.cjs
-*.mjs
-tsconfig*.json
-build_check.*
-bundle_*
-verify_*
-ts_check.*
+test_*.cjs
+*_test.cjs
+verify_*.cjs
+e2e.cjs
 package.json
+package-lock.json
 node_modules/
-
-# 文档可不部署（注释掉下一行即包含）
-# README.md
+README_INTERNAL.md

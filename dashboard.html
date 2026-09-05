@@ -24,6 +24,12 @@ button{font:inherit;cursor:pointer;border:none;border-radius:8px;padding:7px 13p
 button:hover{filter:brightness(1.15)}
 button.primary{background:var(--brand);color:#0b0f1a;font-weight:600}
 button.danger{background:var(--bad);color:#fff}
+/* 表格操作按钮：统一尺寸，编辑/删除等大 */
+table .btn{height:30px;min-width:52px;padding:4px 12px;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+table .btn + .btn{margin-left:6px}
+@media(max-width:720px){
+ table .btn{height:32px;min-width:48px;padding:5px 10px}
+}
 input,select,textarea{font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--input-bg);color:var(--txt);width:100%;max-width:420px}
 input:focus,select,textarea:focus{outline:none;border-color:var(--brand)}
 label{display:block;margin:10px 0 4px;color:var(--muted)}
@@ -216,6 +222,22 @@ function initNav(){
   });
 }
 
+// ---------- 表格操作按钮：事件委托（data-action / data-id，根除"点击无反应"）----------
+function initTableActions(){
+  // 用事件委托绑定到 #view，任何动态渲染的行都生效（编辑/删除按钮）
+  var view = $('#view');
+  if(!view) return;
+  view.addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-action]');
+    if(!btn || btn.disabled) return;
+    var action = btn.dataset.action;
+    var id = btn.dataset.id;
+    if(!id) return;
+    if(action === 'edit'){ window.openProvider(id); }
+    else if(action === 'delete'){ window.deleteProvider(id); }
+  });
+}
+
 // ---------- 主题切换（亮色 / 暗色）----------
 window.applyTheme = function(theme){
   document.documentElement.setAttribute('data-theme', theme);
@@ -297,8 +319,9 @@ window.render_providers = function(){
       html += '<td>'+(p.keys?(p.keys.filter(function(k){return k.enabled;}).length+'/'+p.keys.length):'0')+'</td>';
       html += '<td class="muted">-</td>';
       html += '<td><span class="tag '+(p.builtin?'':'on')+'>'+(p.builtin?'内置':'自建')+'</span></td>';
-      html += '<td><button onclick="editProvider(\''+esc(p.id)+'\')">编辑</button> ';
-      if(!p.builtin) html += '<button class="danger" onclick="deleteProvider(\''+esc(p.id)+'\')">删除</button>';
+      html += '<td class="row-actions" style="white-space:nowrap">';
+      html += '<button class="btn" data-action="edit" data-id="'+esc(p.id)+'">编辑</button>';
+      if(!p.builtin) html += '<button class="btn danger" data-action="delete" data-id="'+esc(p.id)+'">删除</button>';
       html += '</td></tr>';
     });
     html += '</tbody></table></div></div>';
@@ -336,7 +359,8 @@ window.saveProvider = function(id){
     protocol: $('#f_protocol').value,
     baseUrl: $('#f_base').value.trim(),
     models: $('#f_models').value.split(/[,，\n]/).map(function(s){return s.trim();}).filter(Boolean),
-    enabled: $('#f_enabled').checked
+    enabled: $('#f_enabled').checked,
+    isCustom: true   // ★ 自建供应商标记：确保 list() 里 builtin=false，从而显示删除按钮
   };
   if(!data.id || !data.name){ window.toast('ID 和名称必填','err'); return; }
   var method = id ? 'PUT' : 'POST';
@@ -620,6 +644,7 @@ window.bootApp = function(){
   initTheme();
   initBurger();
   initNav();
+  initTableActions();
   tickClock();
   setInterval(tickClock, 30000);
   var hash = (location.hash||'').replace('#','');
