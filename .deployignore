@@ -1,7 +1,13 @@
+# 测试脚本与本地校验工具不进入部署包
 *.cjs
 *.mjs
-check/
-tscheck/
+tsconfig*.json
+build_check.*
+bundle_*
+verify_*
+ts_check.*
+package.json
 node_modules/
-package*.json
-README.md
+
+# 文档可不部署（注释掉下一行即包含）
+# README.md

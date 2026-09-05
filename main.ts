@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 
 // =====================================================================
-//  LLM Router · v2.2.0 (完整版)
+//  LLM Router · v2.3.5 (完整版)
 //  单文件实现，无外部模块依赖（除 Hono）
 //
 //  功能:
@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.3.2";
+const VERSION = "2.3.5";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -372,7 +372,7 @@ class WebhookNotifier {
 // =====================================================================
 function exportConfig(providers: ReturnType<ConfigStore["list"]>, routes: RouteRules, pkm: ProxyKeyManager) {
   return {
-    version: "2.2.0",
+    version: VERSION,
     exported_at: new Date().toISOString(),
     providers,
     routes: routes.list(),
@@ -576,8 +576,13 @@ CONFIG.ready.then(() => {
 // =====================================================================
 const app = new Hono();
 
-app.get("/", (c) => c.json({ ok: true, service: "llm-router", version: "2.2.0", providers: CONFIG.providers.size }));
-app.get("/health", (c) => c.json({ ok: true }));
+app.get("/", async (c) => {
+  await loadDashboard();
+  // 直接返回后台页面（含登录页 + Dashboard），打开域名即进后台；登录态由前端 /auth/me 校验
+  const html = DASHBOARD_TEMPLATE.replace(/\{\{VERSION\}\}/g, VERSION);
+  return c.html(html);
+});
+app.get("/health", (c) => c.json({ ok: true, version: VERSION, providers: CONFIG.providers.size }));
 
 // ---- /v1/models ----
 app.get("/v1/models", async (c) => {

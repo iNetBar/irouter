@@ -620,13 +620,16 @@ window.bootApp = function(){
   initTheme();
   initBurger();
   initNav();
-  bindLogin();
   tickClock();
   setInterval(tickClock, 30000);
   var hash = (location.hash||'').replace('#','');
   var tab = ['providers','keys','latency','usage','logs','routes'].indexOf(hash) >= 0 ? hash : 'providers';
   window.loadTab(tab);
 };
+
+// 登录页事件必须在启动后台之前就绑定：否则首次加载（未登录）时
+// 登录按钮没有 click/submit 监听，点登录会毫无反应。
+bindLogin();
 
 // DOM 就绪后先做认证，再决定是否启动后台
 if (document.readyState === 'loading') {
