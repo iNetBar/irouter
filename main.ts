@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.3.0";
+const VERSION = "2.2.0";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -90,22 +90,12 @@ class ConfigStore {
   ready: Promise<void>;
   constructor() { this.ready = this.init(); }
   async init() {
-    // 1) 始终先用 BUILTIN 铺底（保证内置供应商一定存在）
     this.seedFromEnv();
-    // 2) KV 只做「合并补全」：用已存的用户改动覆盖同名项，绝不删除内置项
     const kv = await getKv();
     if (kv) {
       const stored = await kv.get<{ providers: Provider[] }>(["config"]);
       if (stored.value?.providers) {
-        for (const p of stored.value.providers) {
-          if (this.providers.has(p.id)) {
-            // 保留 seed 的 baseUrl/protocol/name，仅合并用户改过的字段
-            const seed = this.providers.get(p.id)!;
-            this.providers.set(p.id, { ...seed, ...p, id: p.id, keys: p.keys?.length ? p.keys : seed.keys });
-          } else {
-            this.providers.set(p.id, p); // 用户自建的供应商
-          }
-        }
+        for (const p of stored.value.providers) this.providers.set(p.id, p);
       }
     }
   }
@@ -131,10 +121,31 @@ class ConfigStore {
     if (!kv) return;
     await kv.put(["config"], { providers: [...this.providers.values()] });
   }
-  list() { return [...this.providers.values()].map((p) => ({ ...this.mask(p), builtin: BUILTIN[p.id] !== undefined })); }
+  list() {
+    return [...this.providers.values()].map((p) => {
+      const m = this.mask(p);
+      // 标记是否为内置供应商（前端据此禁止删除、区分显示）
+      (m as any).builtin = !p.isCustom;
+      return m;
+    });
+  }
   get(id: string) { const p = this.providers.get(id); return p ? this.mask(p) : null; }
   upsert(input: Partial<Provider> & { id: string }) {
     const e = this.providers.get(input.id);
+    // 保护：禁止覆盖内置供应商的关键字段（协议/baseUrl 由 BUILTIN 锁定）
+    if (e && !e.isCustom) {
+      const p: Provider = {
+        ...e,
+        name: input.name || e.name,
+        enabled: input.enabled !== undefined ? !!input.enabled : e.enabled,
+        models: input.models && input.models.length ? input.models : e.models,
+        keys: e.keys,
+        defaultModel: input.defaultModel || e.defaultModel,
+      };
+      this.providers.set(input.id, p);
+      this.persist();
+      return this.mask(p);
+    }
     const p: Provider = {
       id: input.id,
       name: input.name || input.id,
@@ -150,7 +161,31 @@ class ConfigStore {
     this.persist();
     return this.mask(p);
   }
-  delete(id: string) { this.providers.delete(id); this.persist(); return { ok: true }; }
+  /** 一键恢复全部内置供应商（清空被误删/污染的，重新从 BUILTIN 铺底） */
+  resetBuiltin() {
+    let restored = 0;
+    for (const [id, def] of Object.entries(BUILTIN)) {
+      if (!this.providers.has(id)) restored++;
+      this.providers.set(id, { id, ...def, models: [], keys: [], enabled: !def.isCustom });
+    }
+    // 兜底：把 isCustom=false 但字段被污染的也重置回 BUILTIN 定义
+    for (const [id, def] of Object.entries(BUILTIN)) {
+      const cur = this.providers.get(id);
+      if (cur && !cur.isCustom) {
+        this.providers.set(id, { ...cur, protocol: def.protocol, baseUrl: def.baseUrl, defaultModel: def.defaultModel, name: def.name });
+      }
+    }
+    this.persist();
+    return { ok: true, restored, total: [...this.providers.values()].filter((p) => !p.isCustom).length };
+  }
+  delete(id: string) {
+    const p = this.providers.get(id);
+    // 保护：内置供应商不可删除，只能禁用
+    if (p && !p.isCustom) return { ok: false, error: "内置供应商不可删除，可禁用" };
+    this.providers.delete(id);
+    this.persist();
+    return { ok: true };
+  }
   addKey(id: string, key: string, label?: string, weight = 1) {
     const p = this.providers.get(id);
     if (!p) return null;
@@ -529,22 +564,9 @@ function adminAuth(c: any): boolean { return checkAuth(c.req.raw); }
 // 供应商 CRUD
 app.get("/admin/api/providers", async (c) => { await CONFIG.ready; return c.json(CONFIG.list()); });
 app.post("/admin/api/providers", async (c) => { await CONFIG.ready; const b = await c.req.json(); return c.json(CONFIG.upsert(b)); });
-app.delete("/admin/api/providers/:id", async (c) => {
-  await CONFIG.ready;
-  const id = c.req.param("id");
-  if (BUILTIN[id]) return c.json({ ok: false, error: "内置供应商不可删除，可禁用" }, 400);
-  return c.json(CONFIG.delete(id));
-});
-// 恢复全部内置供应商（误删/清空后一键找回）
-app.post("/admin/api/providers/reset-builtin", async (c) => {
-  await CONFIG.ready;
-  for (const [id, def] of Object.entries(BUILTIN)) {
-    const exists = CONFIG.providers.get(id);
-    CONFIG.providers.set(id, { id, ...def, models: exists?.models || [], keys: exists?.keys || [], enabled: !def.isCustom });
-  }
-  await CONFIG.persist();
-  return c.json({ ok: true, count: Object.keys(BUILTIN).length });
-});
+app.delete("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const r = CONFIG.delete(c.req.param("id")); if (r && (r as any).error) return c.json(r, 400); return c.json(r); });
+// 一键恢复全部内置供应商（前端「＋ 恢复内置供应商」按钮调用）
+app.post("/admin/api/providers/reset-builtin", async (c) => { await CONFIG.ready; return c.json(CONFIG.resetBuiltin()); });
 // Keys
 app.post("/admin/api/providers/:id/keys", async (c) => { await CONFIG.ready; const { id } = c.req.param(); const b = await c.req.json(); return c.json(CONFIG.addKey(id, b.key, b.label, b.weight || 1)); });
 app.delete("/admin/api/providers/:id/keys/:keyId", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); return c.json(CONFIG.deleteKey(id, keyId)); });

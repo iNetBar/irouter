@@ -1,9 +1,7 @@
-# 测试/校验脚本不打进部署包（本地验证用）
 *.cjs
 *.mjs
-tscheck/
 check/
-package.json
+tscheck/
 node_modules/
+package*.json
 README.md
-.gitignore
