@@ -2,9 +2,12 @@
   "imports": {
     "hono": "jsr:@hono/hono@4.13.7"
   },
+  "compilerOptions": {
+    "jsx": "preserve",
+    "lib": ["deno.core", "deno.web"]
+  },
   "tasks": {
     "dev": "deno run --allow-net --allow-env --allow-read --unstable-kv main.ts",
-    "start": "deno run --allow-net --allow-env --allow-read --unstable-kv main.ts",
-    "check": "deno check main.ts"
+    "start": "deno run --allow-net --allow-env --allow-read --unstable-kv main.ts"
   }
 }

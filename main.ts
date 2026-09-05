@@ -17,6 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
+const VERSION = "2.2.0";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -560,229 +561,39 @@ app.post("/admin/api/config/import", async (c) => {
 });
 
 // =====================================================================
-//  Dashboard (完整 6 Tab UI，内联)
+//  Dashboard (独立 dashboard.html，由 /admin 路由注入动态数据)
+//  —— 刻意不放进 TS 模板字符串，避免 Deno 把 < > 当 TSX 解析 (此前报 SyntaxError)
 // =====================================================================
-app.get("/admin", (c) => {
+// ---------- 载入 Dashboard (独立 HTML 文件，避免 TS 模板字面量冲突) ----------
+let DASHBOARD_TEMPLATE = "";
+async function loadDashboard() {
+  if (DASHBOARD_TEMPLATE) return;
+  try {
+    DASHBOARD_TEMPLATE = await Deno.readTextFile("./dashboard.html");
+  } catch (e) {
+    DASHBOARD_TEMPLATE = "<!doctype html><html><body><h1>Dashboard 加载失败</h1><p>" +
+      String(e && e.message || e) + "</p><p>请确保 dashboard.html 与 main.ts 同目录，并已包含在部署产物中。</p></body></html>";
+  }
+}
+
+app.get("/admin", async (c) => {
   if (!adminAuth(c)) return c.text("Unauthorized", 401);
-  return c.html(DASHBOARD_HTML);
+  await loadDashboard();
+  const html = DASHBOARD_TEMPLATE.replace(/\{\{VERSION\}\}/g, VERSION);
+  return c.html(html);
 });
-
-const DASHBOARD_HTML = `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LLM Router · v2.2.0</title>
-<style>
-:root{--bg:#0f172a;--panel:#1e293b;--line:#334155;--txt:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--green:#4ade80;--yellow:#facc15;--red:#f87171}
-*{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--txt);font-size:14px}
-a{color:var(--accent);text-decoration:none}
-header{padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:10}
-header h1{font-size:1.1rem;margin:0}
-header .ver{color:var(--muted);font-size:.8rem;margin-left:.5rem}
-.tabs{display:flex;gap:.25rem;padding:.5rem 1.5rem;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.tab{padding:.5rem 1rem;cursor:pointer;border-radius:.5rem .5rem 0 0;color:var(--muted);border:1px solid transparent}
-.tab.active{color:var(--accent);background:var(--panel);border-color:var(--line);border-bottom-color:var(--panel)}
-.pane{padding:1.5rem;display:none}.pane.active{display:block}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:.75rem;padding:1rem;margin-bottom:1rem}
-.card h3{margin:0 0 .75rem;font-size:.95rem}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:.75rem;padding:1rem}
-.stat .v{font-size:1.6rem;font-weight:700;color:var(--accent)}
-.stat .l{color:var(--muted);font-size:.8rem}
-table{width:100%;border-collapse:collapse}
-th,td{text-align:left;padding:.5rem;border-bottom:1px solid var(--line);vertical-align:middle}
-th{color:var(--muted);font-weight:600;font-size:.8rem}
-.dot{display:inline-block;width:.6rem;height:.6rem;border-radius:50%}
-.dot.g{background:var(--green)}.dot.y{background:var(--yellow)}.dot.r{background:var(--red)}
-input,select,button{font:inherit;padding:.45rem .75rem;border-radius:.5rem;border:1px solid var(--line);background:var(--bg);color:var(--txt)}
-button{background:var(--accent);color:#0f172a;border:none;cursor:pointer;font-weight:600}
-button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
-button.danger{background:var(--red)}
-input{width:100%}
-.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end}
-.muted{color:var(--muted)}
-.alert{background:rgba(248,113,113,.15);border:1px solid var(--red);border-radius:.5rem;padding:.75rem;margin-bottom:1rem}
-.badge{display:inline-block;padding:.1rem .5rem;border-radius:999px;font-size:.75rem;background:var(--line)}
-.bar{height:.5rem;background:var(--line);border-radius:999px;overflow:hidden;min-width:80px;display:inline-block;vertical-align:middle}
-.bar>i{display:block;height:100%;background:var(--accent)}
-@media(max-width:600px){.grid{grid-template-columns:1fr}}
-</style>
-</head>
-<body>
-<header>
-  <h1>🛰️ LLM Router <span class="ver">v2.2.0</span></h1>
-  <div id="clock" class="muted"></div>
-</header>
-<div class="tabs">
-  <div class="tab active" data-t="providers">📡 供应商</div>
-  <div class="tab" data-t="keys">🔑 Keys</div>
-  <div class="tab" data-t="latency">📊 延迟</div>
-  <div class="tab" data-t="usage">💰 用量</div>
-  <div class="tab" data-t="logs">📋 日志</div>
-  <div class="tab" data-t="routes">⚙️ 路由规则</div>
-</div>
-
-<div class="pane active" id="p-providers">
-  <div class="card"><h3>添加 / 编辑供应商</h3>
-    <div class="row">
-      <div><label class="muted">ID</label><input id="p-id" placeholder="my-provider"></div>
-      <div><label class="muted">名称</label><input id="p-name" placeholder="My Provider"></div>
-      <div><label class="muted">协议</label><select id="p-proto"><option value="openai">openai</option><option value="anthropic">anthropic</option><option value="google">google</option><option value="glm">glm</option></select></div>
-      <div style="flex:1;min-width:240px"><label class="muted">Base URL</label><input id="p-base" placeholder="https://api.example.com/v1"></div>
-      <div><label class="muted">默认模型</label><input id="p-model" placeholder="gpt-4o-mini"></div>
-      <button onclick="saveProvider()">保存</button>
-    </div>
-  </div>
-  <div class="card"><h3>供应商列表</h3><table><thead><tr><th>状态</th><th>ID</th><th>名称</th><th>协议</th><th>默认模型</th><th>Keys</th><th></th></tr></thead><tbody id="providers-body"></tbody></table></div>
-</div>
-
-<div class="pane" id="p-keys">
-  <div class="card"><h3>添加 Key</h3>
-    <div class="row">
-      <div><label class="muted">供应商</label><select id="k-pid"></select></div>
-      <div style="flex:1"><label class="muted">Key</label><input id="k-key" type="password" placeholder="sk-..."></div>
-      <div><label class="muted">标签</label><input id="k-label" placeholder="生产"></div>
-      <button onclick="addKey()">添加</button>
-    </div>
-  </div>
-  <div class="card"><h3>各供应商 Keys</h3><div id="keys-list"></div></div>
-</div>
-
-<div class="pane" id="p-latency">
-  <div class="grid" id="lat-stats"></div>
-  <div class="card"><h3>各供应商延迟 (P50 / P95 / Avg / Max / 样本)</h3><table><thead><tr><th>供应商</th><th>P50</th><th>P95</th><th>Avg</th><th>Max</th><th>样本</th></tr></thead><tbody id="lat-body"></tbody></table></div>
-</div>
-
-<div class="pane" id="p-usage">
-  <div class="grid" id="usage-stats"></div>
-  <div class="card"><h3>各供应商 Token 用量</h3><table><thead><tr><th>供应商</th><th>请求数</th><th>Input</th><th>Output</th><th>占比</th></tr></thead><tbody id="usage-body"></tbody></table></div>
-</div>
-
-<div class="pane" id="p-logs">
-  <div class="card"><div class="row"><input id="log-filter" placeholder="按供应商/模型筛选..."><button onclick="loadLogs()">刷新</button></div></div>
-  <div class="card"><table><thead><tr><th>时间</th><th>模型</th><th>供应商</th><th>状态</th><th>延迟</th><th>Tokens</th></tr></thead><tbody id="logs-body"></tbody></table></div>
-</div>
-
-<div class="pane" id="p-routes">
-  <div class="card"><h3>路由规则 (模型 -> 供应商优先级)</h3>
-    <div class="row">
-      <div style="flex:1"><label class="muted">模型匹配 (支持 * 通配)</label><input id="r-pat" placeholder="deepseek-* 或 *gpt*"></div>
-      <div style="flex:1"><label class="muted">供应商顺序 (逗号分隔)</label><input id="r-prov" placeholder="deepseek,siliconflow,openrouter"></div>
-      <button onclick="addRoute()">添加规则</button>
-    </div>
-    <p class="muted" style="font-size:.8rem">例：<code>*gpt*</code> → openai,openrouter 表示匹配 gpt 的模型优先走 OpenAI，失败 fallback OpenRouter。</p>
-  </div>
-  <div class="card"><table><thead><tr><th>匹配</th><th>供应商顺序</th><th></th></tr></thead><tbody id="routes-body"></tbody></table></div>
-</div>
-
-<script>
-const API="/admin/api";
-let providers=[],routes=[],latency={},usage={},logs=[];
-const $=(s)=>document.querySelector(s);
-setInterval(()=>{$('#clock').textContent=new Date().toLocaleString()},1000);
-
-document.querySelectorAll('.tab').forEach(t=>{
-  t.onclick=()=>{
-    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-    document.querySelectorAll('.pane').forEach(x=>x.classList.remove('active'));
-    t.classList.add('active');
-    $('#p-'+t.dataset.t).classList.add('active');
-    refresh(t.dataset.t);
-  };
-});
-
-async function api(path,opt={}){const r=await fetch(API+path,opt);return r.json();}
-function esc(s){return (s||'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c)));}
-
-async function refresh(t){
-  if(t==='providers'||t==='keys'){providers=await api('/providers');renderProviders();renderKeys();fillKeySelect();}
-  if(t==='latency'){latency=await api('/stats/latency');renderLatency();}
-  if(t==='usage'){usage=await api('/stats/usage');renderUsage();}
-  if(t==='logs'){logs=await api('/logs?limit=200');renderLogs();}
-  if(t==='routes'){routes=await api('/routes');renderRoutes();}
-}
-function providerOptions(providers){let h='';for(const p of providers){h+='<option value="'+p.id+'">'+esc(p.name)+'</option>';}return h;}
-function fillKeySelect(){const sel=$('#k-pid');sel.innerHTML=providerOptions(providers);}
-
-function renderProviders(){
-  $('#providers-body').innerHTML=providers.map(p=>{
-    const ok=p.keys.filter(k=>k.enabled).length;
-    return `<tr>
-      <td><span class="dot ${p.enabled?'g':'r'}"></span></td>
-      <td><code>${esc(p.id)}</code></td>
-      <td>${esc(p.name)}</td>
-      <td><span class="badge">${esc(p.protocol)}</span></td>
-      <td><code>${esc(p.defaultModel)}</code></td>
-      <td>${ok}/${p.keys.length}</td>
-      <td><button class="ghost" onclick="testProvider('${p.id}')">测试</button>
-          <button class="ghost" onclick="discover('${p.id}')">探测模型</button>
-          <button class="danger" onclick="delProvider('${p.id}')">删</button></td>
-    </tr>`;
-  }).join('');
-}
-async function saveProvider(){
-  const b={id:$('#p-id').value.trim(),name:$('#p-name').value.trim(),protocol:$('#p-proto').value,baseUrl:$('#p-base').value.trim(),defaultModel:$('#p-model').value.trim(),isCustom:true};
-  if(!b.id||!b.baseUrl)return alert('ID 和 Base URL 必填');
-  await api('/providers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});
-  ['p-id','p-name','p-base','p-model'].forEach(i=>$(i).value='');
-  refresh('providers');
-}
-async function delProvider(id){if(!confirm('确定删除？'))return;await api('/providers/'+id,{method:'DELETE'});refresh('providers');}
-async function testProvider(id){const r=await api('/providers/'+id+'/test',{method:'POST'});alert(JSON.stringify(r,null,2));refresh('providers');}
-async function discover(id){alert('探测模型：发送一次轻量请求，返回的模型列表会合并进配置（需上游 /models 支持）。当前已记录默认模型。');}
-
-function renderKeys(){
-  $('#keys-list').innerHTML=providers.map(p=>{
-    if(!p.keys.length)return `<div class="card muted">${esc(p.name)}：无 Key</div>`;
-    return `<div class="card"><h3>${esc(p.name)} <span class="muted">(${p.id})</span></h3><table><thead><tr><th>Key</th><th>标签</th><th>状态</th><th>失败</th><th></th></tr></thead><tbody>${
-      p.keys.map(k=>`<tr><td><code>${esc(k.key)}</code></td><td>${esc(k.label||'')}</td>
-        <td>${k.enabled?'<span class="dot g"></span> 正常':'<span class="dot r"></span> 已摘除'}</td>
-        <td>${k.failCount>=3?'<span style="color:var(--red)">⚠️ '+k.failCount+'</span>':k.failCount}</td>
-        <td>${k.enabled?'':'<button class="ghost" onclick="recoverKey(\''+p.id+'\',\''+k.id+'\')">恢复</button>'}</td></tr>`).join('')
-    }</tbody></table></div>`;
-  }).join('');
-}
-async function addKey(){const id=$('#k-pid').value,key=$('#k-key').value.trim(),label=$('#k-label').value.trim();if(!key)return;await api('/providers/'+id+'/keys',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key,label})});$('#k-key').value='';refresh('keys');}
-async function recoverKey(pid,kid){await api('/providers/'+pid+'/keys/'+kid+'/recover',{method:'POST'});refresh('keys');}
-
-function renderLatency(){
-  const o=latency.overall||{};
-  $('#lat-stats').innerHTML=Object.entries({P50:o.p50,P95:o.p95,Avg:o.avg,Max:o.max,'样本':o.count}).map(([k,v])=>`<div class="stat"><div class="l">${k}</div><div class="v">${v||0}${k.includes('50')||k.includes('Avg')||k==='Max'?'ms':''}</div></div>`).join('');
-  $('#lat-body').innerHTML=Object.entries(latency.providers||{}).map(([id,s])=>`<tr><td><code>${esc(id)}</code></td><td>${s.p50}</td><td>${s.p95}</td><td>${s.avg}</td><td>${s.max}</td><td>${s.count}</td></tr>`).join('');
-}
-function renderUsage(){
-  const total=usage.total_tokens||0;
-  $('#usage-stats').innerHTML=Object.entries({总Token:total,'已记录请求':Object.keys(usage.providers||{}).length}).map(([k,v])=>`<div class="stat"><div class="l">${k}</div><div class="v">${v}</div></div>`).join('');
-  $('#usage-body').innerHTML=Object.entries(usage.providers||{}).map(([id,s])=>{const pct=total?Math.round((s.input+s.output)/total*100):0;return `<tr><td><code>${esc(id)}</code></td><td>${s.requests}</td><td>${s.input}</td><td>${s.output}</td><td><div class="bar"><i style="width:${pct}%"></i></div> ${pct}%</td></tr>`;}).join('');
-}
-function renderLogs(){
-  $('#logs-body').innerHTML=logs.map(e=>`<tr><td class="muted">${new Date(e.ts).toLocaleTimeString()}</td><td><code>${esc(e.model)}</code></td><td>${esc(e.provider)}</td><td style="color:${e.status>=400||!e.status?'var(--red)':'var(--green)'}">${e.status||'ERR'}</td><td>${e.latency_ms}ms</td><td>${((e.input_tokens||0)+(e.output_tokens||0))||'-'}</td></tr>`).join('');
-}
-async function loadLogs(){logs=await api('/logs?limit=200');renderLogs();}
-
-function renderRoutes(){
-  $('#routes-body').innerHTML=routes.map(r=>`<tr><td><code>${esc(r.pattern)}</code></td><td>${r.providers.map(p=>`<span class="badge">${esc(p)}</span>`).join(' → ')}</td><td><button class="danger" onclick="delRoute('${r.id}')">删</button></td></tr>`).join('');
-}
-async function addRoute(){const pattern=$('#r-pat').value.trim(),providers=$('#r-prov').value.trim().split(/[,\s]+/).filter(Boolean);if(!pattern||!providers.length)return alert('请填写完整');await api('/routes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pattern,providers})});$('#r-pat').value='';$('#r-prov').value='';refresh('routes');}
-async function delRoute(id){await api('/routes/'+id,{method:'DELETE'});refresh('routes');}
-
-// 初始加载
-refresh('providers');
-</script>
-</body>
-</html>`;
 
 app.notFound((c) => c.json({ error: "Not Found", path: c.req.path }, 404));
 
 // =====================================================================
 //  启动 (Deno Deploy 兼容：无端口)
 // =====================================================================
-Deno.serve(app.fetch);
-
-CONFIG.ready.then(() => {
-  console.log(`[llm-router] v2.2.0 started · providers=${CONFIG.providers.size} · webhook=${ENV.WEBHOOK_URL ? "on" : "off"}`);
-});
+async function start() {
+  await CONFIG.ready;
+  await loadDashboard(); // 启动时预加载 dashboard.html（失败也有兜底 HTML，不会崩）
+  Deno.serve(app.fetch);
+  console.log(`[llm-router] v${VERSION} started · providers=${CONFIG.providers.size} · webhook=${ENV.WEBHOOK_URL ? "on" : "off"}`);
+}
+start();
 
 export default app;
