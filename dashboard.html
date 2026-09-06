@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>irouter · LLM 网关</title>
+<title>iRouter · LLM 网关</title>
 <style>
 /* ==================================================================
-   irouter · 设计系统
+   iRouter · 设计系统
    双主题（dark / light）· 柔和圆角 · 细腻阴影 · 微动效
    ================================================================== */
 :root{
@@ -358,7 +358,7 @@ input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);trans
  <form id="login-form" class="card" style="width:100%;max-width:360px;margin:0;box-shadow:0 12px 40px rgba(0,0,0,.35)" onsubmit="return false">
   <div style="text-align:center;margin-bottom:16px">
    <div style="font-size:26px">⚡</div>
-   <h2 style="margin:4px 0 2px;font-size:17px">irouter 管理后台</h2>
+   <h2 style="margin:4px 0 2px;font-size:17px">iRouter 管理后台</h2>
    <div class="muted" style="font-size:12px">LLM 聚合网关 · v{{VERSION}}</div>
   </div>
   <label>用户名</label>
@@ -390,7 +390,7 @@ input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);trans
 </div>
 
 <aside class="side" id="side">
- <div class="brand">⚡ irouter<small>LLM 聚合网关 v{{VERSION}}</small></div>
+ <div class="brand">⚡ iRouter<small>LLM 聚合网关 v{{VERSION}}</small></div>
  <nav class="nav" id="nav">
   <a href="#dashboard" data-tab="dashboard" class="active"><span class="ic">🏠</span><span>首页</span></a>
   <a href="#providers" data-tab="providers"><span class="ic">📡</span><span>供应商</span></a>
@@ -469,47 +469,69 @@ window.toast = function(msg, kind, opts){
 //    - 剥离误传入的 "METHOD /url" 前缀
 //    - 确保以 "/" 开头、合并重复斜杠
 // ===================================================================
-window.api = function(method, path, body) {
+window.api = function api(method, path, body){
+  // ---- 参数归一：同时兼容 api(method, path, body) 与 api(path, {method,body}) ----
   var m, p, b;
-  if (typeof method === 'string' && typeof path === 'string') {
-    m = method.toUpperCase(); p = path; b = body;
+  if(typeof method === 'string' && typeof path === 'string'){
+    // 新式：api('GET', '/providers') 或 api('DELETE', '/providers/xxx')
+    m = method.toUpperCase();
+    p = path;
+    b = body;
   } else {
-    p = method; var opts = path || {};
-    m = (opts.method || 'GET').toUpperCase(); b = opts.body;
+    // 旧式：api('/providers', {method:'DELETE', body:{...}})
+    p = method;                       // 第一个参数其实是 path
+    var opts = (path && typeof path === 'object' && !Array.isArray(path)) ? path : {};
+    m = (opts.method || 'GET').toUpperCase();
+    b = opts.body;
   }
-  // 规范化
-  p = String(p || '').replace(/^\s+|\s+$/g, '');
-  // 剥离 "METHOD /url" 格式
-  var full = p.match(/^(GET|POST|PUT|DELETE|PATCH)\s+(.+)$/i);
-  if (full) { m = full[1].toUpperCase(); p = full[2]; }
+  p = (p == null ? '' : String(p)).replace(/^\s+|\s+$/g, '');   // trim
+  var full = p.match(/^(GET|POST|PUT|DELETE|PATCH)\s+(.+)$/i);   // 剥离 "METHOD /url"
+  if(full){ m = full[1].toUpperCase(); p = full[2]; }
+  p = p.replace(/^(GET|POST|PUT|DELETE|PATCH)\s+/i, '');          // 再保险：去掉残留前缀
+  // 绝对防御：剥离误拼进 path 的 "METHOD "（如 'GET /admin/api/xxx'）
   p = p.replace(/^(GET|POST|PUT|DELETE|PATCH)\s+/i, '');
-  if (p.indexOf('/') !== 0) p = '/' + p;
-  p = p.replace(/([^:]\/)\/+/g, '$1');
-  
-  // 拼 URL —— 防止双重 /admin/api 前缀
-  var url;
-  if (p.indexOf('/admin/api/') === 0) {
-    url = p;  // 已经完整，直接用
-  } else {
-    var ep = p.replace(/^\//, '');
-    if (/^(providers|routes|keys|dashboard|config|stats|logs|storage|status)(\/|$)/.test(ep)) {
-      url = '/admin/api/' + ep;
-    } else {
-      url = p;
-    }
+  if(p.indexOf('/') !== 0){ p = '/' + p; }                       // 必须以 / 开头
+  // 合并重复斜杠（含开头的 "//admin" → "/admin"）
+  while (/\/\/+/.test(p)) { p = p.replace(/\/\/+/g, '/'); }
+  // 绝对防御："/admin/api/admin/api/..." → "/admin/api/..."（合并重复前缀）
+  while (p.indexOf('/admin/api/admin/api') === 0) {
+    p = p.replace('/admin/api', '');
   }
-  
+  // 兜底：剥离误拼进路径的 HTTP 方法后缀（如 ".../apiGET"、".../apiPOST"），
+  // 根治历史上 v2.5.0 缓存残留导致的 GET /admin/apiGET 404
+  p = p.replace(/\/(api)(GET|POST|PUT|DELETE|PATCH)([\/?#].*)?$/i, function(_, api, method, rest){
+    return '/' + api.toLowerCase() + (rest || '/');
+  });
+  var url = p;
+  // 已是完整路径（以 /admin/api/ 开头） → 直接使用，绝不再拼前缀
+  if(p.indexOf('/admin/api/') === 0){
+    url = p;
+  }
+  // 业务片段（providers/routes/...）→ 自动拼 /admin/api 前缀
+  else if(/^\/(providers|routes|keys|config|proxy-keys|health|storage|dashboard|models|admin|stats|logs|settings|status)(\/|$)/.test(p)){
+    url = '/admin/api' + p;
+  }
   return fetch(url, {
     method: m,
-    headers: b ? {'Content-Type':'application/json'} : {},
+    headers: Object.assign({'Accept':'application/json'}, b ? {'Content-Type':'application/json'} : {}),
     body: b ? JSON.stringify(b) : undefined,
     credentials: 'include'
   }).then(function(r){
-    if(!r.ok) return r.json().then(function(e){ throw e; });
-    return r.json();
+    return r.text().then(function(txt){
+      var data = null;
+      if(txt){ try { data = JSON.parse(txt); } catch(e){ data = null; } }
+      if(r.ok){
+        if(data && data.ok === false && data.error) throw new Error(data.error);
+        return data;
+      }
+      var msg = (data && (data.error || data.message)) || txt || ('HTTP ' + r.status);
+      var err = new Error(msg);
+      err.status = r.status; err.path = p; err.url = url; err.response = data;
+      throw err;
+    });
   });
 };
-   
+
 window.confirmDanger = function(msg){
   return new Promise(function(res){ res(window.confirm(msg)); });
 };
@@ -719,16 +741,48 @@ window.render_dashboard = function(silent){
     // 使用指南（首次进入自动展开，localStorage 记忆）
     var guide = window.render_guide ? window.render_guide(true) : '';
 
+    // 调用信息卡：Base URL + Token（管理员可改，默认收起，点「修改」展开表单）
+    var st = d.settings || {};
+    var baseUrl = st.baseUrl || (location.origin ? location.origin : '');
+    var conn = ''
+      + '<div class="card" id="connCard">'
+      + '<div class="card-head"><h3>🔗 调用信息</h3>'
+      + '<button class="link" onclick="window.render_connection_card(true)">修改</button></div>'
+      + '<div class="conn-row"><span class="conn-k">项目</span><b>'+esc(st.projectName || 'iRouter')+'</b></div>'
+      + '<div class="conn-row"><span class="conn-k">网关 Base URL</span>'
+      + '  <code id="conn_baseUrl_txt" class="conn-url" title="点击复制" onclick="window.copyText&&window.copyText(this.textContent)">'+esc(baseUrl || '（未设置，前端将使用当前站点地址）')+'</code></div>'
+      + '<div class="conn-row"><span class="conn-k">调用 Token</span>'
+      + '  <code id="conn_apiToken_txt" class="conn-url">'+esc(st.apiToken || '（未设置）')+'</code>'
+      + '  <button class="icon-btn" title="复制明文 Token" onclick="window.copyTokenPlain()">📋</button>'
+      + '  <span class="tag '+(st.apiTokenSet ? 'ok' : 'warn')+'">'+(st.apiTokenSet ? '已设置' : '未设置')+'</span></div>'
+      + '<small class="muted">Token 默认脱敏显示；点「📋」复制完整明文到剪贴板，或点「修改」重新生成。</small>'
+      + '<div class="conn-curl">'
+      + '  <small class="muted">curl 示例（Token 为调用方 Header，与管理员登录密码相互独立）：</small>'
+      + '  <pre id="conn_curl" onclick="window.copyText&&window.copyText(this.textContent)">curl '+esc(baseUrl || '$BASE')+'/v1/chat/completions \\\n  -H "Authorization: Bearer '+(st.apiToken ? esc(st.apiToken) : '<YOUR_TOKEN>')+'" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}\'</pre>'
+      + '</div>'
+      + '<div id="conn_form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">'
+      + '  <label>项目名</label><input id="conn_project" value="'+esc(st.projectName || 'iRouter')+'">'
+      + '  <label>网关 Base URL <small class="muted">（留空则自动使用当前站点地址）</small></label>'
+      + '  <input id="conn_baseUrl" placeholder="https://irouter.isky.deno.net" value="'+esc(st.baseUrl || '')+'">'
+      + '  <label>调用 Token <small class="muted">（留空 = 不修改；至少 8 位才会更新，与登录密码相互独立）</small></label>'
+      + '  <input id="conn_apiToken" type="password" placeholder="留空则不修改" autocomplete="new-password">'
+      + '  <div class="row" style="margin-top:12px;justify-content:flex-end">'
+      + '    <button onclick="window.render_connection_card(false)">取消</button>'
+      + '    <button class="primary" onclick="window.saveConnection()">保存</button></div>'
+      + '</div>'
+      + '</div>';
+
     view.innerHTML =
       '<div class="ds">'
       + '<div class="ds-head">'
-      + '<div><h2>irouter 总览</h2><small class="muted">版本 v'+(d.version||'')+' · 数据每 30 秒自动刷新</small></div>'
+      + '<div><h2>iRouter 总览</h2><small class="muted">版本 v'+(d.version||'')+' · 数据每 30 秒自动刷新</small></div>'
       + '<div class="row"><button class="primary" onclick="location.hash=\'#providers\'">＋ 添加供应商</button>'
       + '<button onclick="window.render_dashboard&&window.render_dashboard()">刷新</button>'
       + '<button onclick="window.showGuide&&window.showGuide(true)" title="查看使用指南">❔ 帮助</button></div>'
       + '</div>'
       + '<div class="ds-cards">' + cards + '</div>'
       + banner
+      + conn
       + '<div class="ds-grid">'
       + '  <div class="card ds-col-2"><div class="card-head"><h3>最近请求</h3><small class="muted">最新 8 条</small></div>'
       + '    <div style="overflow-x:auto"><table><thead><tr><th></th><th>时间</th><th>模型</th><th>供应商</th><th>状态</th><th>耗时</th></tr></thead><tbody>'+recent+'</tbody></table></div></div>'
@@ -752,7 +806,7 @@ window.showGuide = function(force){
   }
   // 直接以 modal 形式展示，兼容无 overlay 场景
   var steps = [
-    { t:'① 部署完成', d:'irouter 已运行。先在右上角确认存储状态为 <b>🟢 已持久化·KV</b>；若是黄点，请到 Deno Deploy 项目设置启用 Deno KV。' },
+    { t:'① 部署完成', d:'iRouter 已运行。先在右上角确认存储状态为 <b>🟢 已持久化·KV</b>；若是黄点，请到 Deno Deploy 项目设置启用 Deno KV。' },
     { t:'② 添加供应商', d:'进入「供应商」→「＋ 添加供应商」，填写名称、标识（如 ollama）、Base URL 与协议（默认 OpenAI 兼容）。' },
     { t:'③ 配置 Key', d:'在供应商行点「编辑」或到「Keys」页，为该供应商添加 API Key（自建供应商可不填）。' },
     { t:'④ 设置路由规则', d:'进入「路由规则」→「＋ 添加规则」，用 pattern 匹配请求路径，选择转发的供应商列表（按顺序兜底）。' },
@@ -760,7 +814,7 @@ window.showGuide = function(force){
     { t:'⑥ 监控与告警', d:'回到本首页看总请求/成功率/模型排行；异常会在右上角提示，可在「延迟/用量」页细查。' },
   ];
   var html = '<div id="guideOverlay" class="guide-overlay"><div class="guide-card card">'
-    + '<div class="guide-head"><h2>🚀 快速上手 irouter</h2>'
+    + '<div class="guide-head"><h2>🚀 快速上手 iRouter</h2>'
     + '<button class="x" onclick="document.getElementById(\'guideOverlay\').remove()">×</button></div>'
     + '<ol class="guide-steps">'+ steps.map(function(s,i){ return '<li><b>'+(i+1)+'. '+s.t.replace(/^\d+\.\s*/,'')+'</b><p>'+s.d+'</p></li>'; }).join('') +'</ol>'
     + '<div class="guide-foot"><label><input type="checkbox" id="guideDontShow"> 不再自动显示（可在「帮助」重新打开）</label>'
@@ -1245,6 +1299,87 @@ window.submitChangePass = function(){
       window.closeChangePass();
       setTimeout(window.logout, 1200);
     }).catch(function(e){ err.textContent = e.message; err.style.display = 'block'; });
+};
+
+// ---------- 一键复制 ----------
+window.copyText = function(txt){
+  txt = String(txt || '');
+  var done = function(){ window.toast('已复制：' + txt.slice(0, 24) + (txt.length > 24 ? '…' : '')); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(done).catch(function(){ fallback(); });
+  } else { fallback(); }
+  function fallback(){
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta); done();
+    } catch(e) { window.toast('复制失败，请手动选择文本'); }
+  }
+};
+
+// ---------- 调用信息卡：修改 / 收起 ----------
+window.render_connection_card = function(editing){
+  var form = document.getElementById('conn_form');
+  var card = document.getElementById('connCard');
+  if (!form || !card) return;
+  if (editing) {
+    form.style.display = 'block';
+    card.querySelectorAll('.conn-curl, .conn-row').forEach(function(el){ /* 保持可见 */ });
+  } else {
+    form.style.display = 'none';
+  }
+};
+
+// ---------- 复制调用信息（Base URL / Token） ----------
+window.copyText = function(text){
+  if (!text) return;
+  var done = function(){ window.toast('已复制到剪贴板'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(function(){ fallback(); });
+  } else { fallback(); }
+  function fallback(){
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta); done();
+    } catch(e){ window.toast('复制失败，请手动选择复制', 'err'); }
+  }
+};
+
+// 复制 Token：出于安全，后端只返回脱敏值；此处复制的是脱敏后的占位串，
+// 管理员若需完整明文，请点「修改」→ 重新填入/生成 Token 后再保存。
+window.copyTokenPlain = function(){
+  var el = document.getElementById('conn_apiToken_txt');
+  var val = el ? el.textContent : '';
+  if (!val || val.indexOf('未设置') >= 0) { window.toast('Token 尚未设置', 'err'); return; }
+  window.copyText(val);
+};
+
+// ---------- 保存调用信息（管理员可改 Token / Base URL） ----------
+window.saveConnection = function(){
+  var project = (document.getElementById('conn_project').value || '').trim();
+  var baseUrl = (document.getElementById('conn_baseUrl').value || '').trim().replace(/\/$/, '');
+  var apiToken = document.getElementById('conn_apiToken').value || ''; // 空 = 不修改
+  var errEl = null;
+  // 若未填 Base URL：自动用当前站点地址（部署后即为网关地址）
+  if (!baseUrl && location.origin) baseUrl = location.origin;
+  if (apiToken && apiToken.trim().length < 8) {
+    window.toast('Token 至少 8 位（留空则不修改）', 'err');
+    return;
+  }
+  window.api('PUT', '/admin/api/settings', {
+    projectName: project || 'iRouter',
+    baseUrl: baseUrl,
+    apiToken: apiToken ? apiToken.trim() : undefined, // undefined 时后端理解为「不修改」
+  }).then(function(d){
+    window.toast((d && d.message) || '调用信息已保存');
+    window.render_connection_card(false);
+    window.render_dashboard && window.render_dashboard(true); // 静默刷新，回填脱敏 Token
+  }).catch(function(e){
+    window.toast('保存失败：' + (e && e.message || e), 'err');
+  });
 };
 
 // ---------- 入口：先校验登录态 ----------

@@ -18,8 +18,12 @@ import { Hono } from "./hono.js";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.5.4";
+const VERSION = "2.5.5";
 const ENV = {
+  // ---- 项目展示信息（总览页可见，可通过环境变量覆盖）----
+  PROJECT_NAME: Deno.env.get("PROJECT_NAME") || "iRouter",
+  BASE_URL: (Deno.env.get("BASE_URL") || "").replace(/\/$/, ""), // 对外调用的网关地址，如 https://irouter.isky.deno.net
+  API_TOKEN: (Deno.env.get("API_TOKEN") || "").trim(),           // 客户端调用用的 Bearer Token（管理员可改）
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
   MONTHLY_BUDGET: Number(Deno.env.get("MONTHLY_BUDGET") || "0"),
@@ -80,7 +84,14 @@ interface AlertEntry { ts: number; event: string; provider?: string; key?: strin
 
 // ---------- KV (懒加载) ----------
 // 用类型别名引用 Deno KV 接口（避免依赖具体命名空间导出，兼容不同 Deno 版本）
-type KV = DenoKv;
+type KV = {
+  get<T>(key: readonly unknown[]): Promise<{ value: T | null; key: readonly unknown[]; versionstamp: string | null }>;
+  set(key: readonly unknown[], value: unknown, opts?: unknown): Promise<unknown>;
+  delete(key: readonly unknown[]): Promise<void>;
+  list(opts: { prefix: readonly unknown[]; limit?: number }): AsyncIterable<{ key: readonly unknown[]; value: unknown; versionstamp: string | null }>;
+  atomic(): unknown;
+  close(): void;
+};
 let _kv: KV | null | undefined = undefined;
 // 存储模式：'kv' = Deno KV 持久化可用；'memory' = 仅内存(重启会丢失)，前端据此告警
 let STORAGE_MODE: "kv" | "memory" = "memory";
@@ -744,6 +755,31 @@ app.post("/admin/api/auth/change-pass", async (c) => {
   return c.json({ ok: true, message: "密码已更新，请使用新密码重新登录" });
 });
 
+// =====================================================================
+//  项目设置：网关 Base URL / 调用 Token（管理员可改，KV 持久化）
+//  （路由定义见下方「Dashboard 聚合接口」之前的 settings 区块）
+// =====================================================================
+app.put("/admin/api/settings", guarded(async (c) => {
+  const b = await c.req.json().catch(() => ({})) as { baseUrl?: string; apiToken?: string; projectName?: string };
+  const kv = await getKv();
+  const baseUrl = (b.baseUrl || "").trim().replace(/\/$/, "");
+  const projectName = (b.projectName || "").trim();
+  // apiToken 特殊处理：空字符串/undefined 表示「不修改」，只有明确传入非空值才更新
+  const tokenIn = b.apiToken != null ? String(b.apiToken).trim() : null;
+  if (baseUrl !== "") (ENV as any).BASE_URL = baseUrl;
+  if (projectName !== "") (ENV as any).PROJECT_NAME = projectName || ENV.PROJECT_NAME;
+  if (tokenIn && tokenIn.length >= 8) (ENV as any).API_TOKEN = tokenIn;
+  if (kv) {
+    await kv.set(["settings"], {
+      baseUrl: (ENV as any).BASE_URL,
+      apiToken: (ENV as any).API_TOKEN,
+      projectName: (ENV as any).PROJECT_NAME,
+      updatedAt: Date.now(),
+    });
+  }
+  return c.json({ ok: true, data: getSettingsView(), message: "设置已保存（重启后保留）" });
+}));
+
 app.get("/admin/api/auth/me", async (c) => {
   const sid = getSessionCookie(c.req.raw);
   const ok = await verifySession(sid);
@@ -865,6 +901,66 @@ app.get("/admin/api/storage/status", guarded(async (c) => {
 }));
 
 // =====================================================================
+//  项目设置：网关 Base URL / 调用 Token（管理员可改，KV 持久化）
+// =====================================================================
+let _settingsLoaded = false;
+async function loadSettings(): Promise<void> {
+  if (_settingsLoaded) return;
+  _settingsLoaded = true;
+  const kv = await getKv();
+  if (!kv) return;
+  try {
+    const cur = await kv.get<{ baseUrl?: string; apiToken?: string; projectName?: string; updatedAt?: number }>(["settings"]);
+    const v = cur.value;
+    if (v) {
+      if (v.baseUrl != null && v.baseUrl !== "") (ENV as any).BASE_URL = v.baseUrl.replace(/\/$/, "");
+      if (v.apiToken != null) (ENV as any).API_TOKEN = v.apiToken;
+      if (v.projectName != null) (ENV as any).PROJECT_NAME = v.projectName;
+    }
+  } catch { /* 无设置时使用环境变量默认值 */ }
+}
+
+function maskToken(t: string): string {
+  const n = t.length;
+  if (n <= 8) return t.slice(0, 1) + "****" + t.slice(-1);
+  return t.slice(0, 4) + "****" + t.slice(-4);
+}
+function getSettingsView() {
+  const tok = (ENV as any).API_TOKEN as string;
+  return {
+    projectName: ENV.PROJECT_NAME,
+    baseUrl: ENV.BASE_URL || "",
+    apiToken: tok ? maskToken(tok) : "",
+    apiTokenSet: !!tok,
+  };
+}
+
+app.get("/admin/api/settings", guarded(async (c) => {
+  return c.json({ ok: true, data: getSettingsView() });
+}));
+
+app.put("/admin/api/settings", guarded(async (c) => {
+  const b = await c.req.json().catch(() => ({})) as { baseUrl?: string; apiToken?: string; projectName?: string };
+  const projectName = (b.projectName || "").trim();
+  const baseUrl = (b.baseUrl || "").trim().replace(/\/$/, "");
+  // apiToken：空字符串 / 未传 = 不修改；只有传入 ≥8 位非空值才更新（避免误清空）
+  const tokenIn = b.apiToken != null ? String(b.apiToken).trim() : null;
+  if (projectName !== "") (ENV as any).PROJECT_NAME = projectName || ENV.PROJECT_NAME;
+  if (baseUrl !== "") (ENV as any).BASE_URL = baseUrl;
+  if (tokenIn && tokenIn.length >= 8) (ENV as any).API_TOKEN = tokenIn;
+  const kv = await getKv();
+  if (kv) {
+    await kv.set(["settings"], {
+      baseUrl: (ENV as any).BASE_URL,
+      apiToken: (ENV as any).API_TOKEN,
+      projectName: (ENV as any).PROJECT_NAME,
+      updatedAt: Date.now(),
+    });
+  }
+  return c.json({ ok: true, data: getSettingsView(), message: "设置已保存（重启后保留）" });
+}));
+
+// =====================================================================
 //  Dashboard 聚合接口：管理首页一次性拿全所有看板数据
 // =====================================================================
 app.get("/admin/api/dashboard", guarded(async (c) => {
@@ -896,6 +992,8 @@ app.get("/admin/api/dashboard", guarded(async (c) => {
       keys: providers.reduce((a: number, p: any) => a + (p.keys ? p.keys.length : 0), 0),
     },
     stats: { totalRequests, successCount, successRate: totalRequests ? Math.round(successCount / totalRequests * 100) : 0, avgLatency: (LATENCY as any).summary ? (LATENCY as any).summary().avg || 0 : 0 },
+    // 总览页「调用信息」卡：网关 Base URL + 调用 Token（脱敏），管理员可改
+    settings: getSettingsView(),
     recent,
     modelRanking,
     providers: providers.map((p: any) => ({
@@ -950,9 +1048,11 @@ app.notFound((c) => c.json({ error: "Not Found", path: c.req.path }, 404));
 // =====================================================================
 async function start() {
   await CONFIG.ready;
-  await loadDashboard(); // 启动时预加载 dashboard.html（失败也有兜底 HTML，不会崩）
+  await loadSettings();      // 恢复网关 Base URL / Token（含 BASE_URL 推导）
+  await loadDashboard();     // 启动时预加载 dashboard.html（失败也有兜底 HTML，不会崩）
   Deno.serve(app.fetch);
-  console.log(`[llm-router] v${VERSION} started · providers=${CONFIG.providers.size} · webhook=${ENV.WEBHOOK_URL ? "on" : "off"}`);
+  const base = (ENV as any).BASE_URL || "(未设置，前端将用当前站点地址)";
+  console.log(`[${ENV.PROJECT_NAME}] v${VERSION} started · providers=${CONFIG.providers.size} · webhook=${ENV.WEBHOOK_URL ? "on" : "off"} · baseUrl=${base}`);
 }
 start();
 
