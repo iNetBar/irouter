@@ -1,12 +1,5 @@
 node_modules
-*.log
-.DS_Store
-.env
 .git
-__pycache__
-*.test.js
-.main_compiled.js
-.dash_check.js
-build_test.js
-verify.js
-check_routes.js
+.DS_Store
+*.log
+dist

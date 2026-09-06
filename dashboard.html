@@ -2,865 +2,1294 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>iRouter 管理后台</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>irouter · LLM 网关</title>
 <style>
+/* ==================================================================
+   irouter · 设计系统
+   双主题（dark / light）· 柔和圆角 · 细腻阴影 · 微动效
+   ================================================================== */
 :root{
-  --bg:#0f1117; --panel:#171a23; --panel2:#1d212c; --line:#2a2f3a;
-  --txt:#e8eaed; --muted:#9aa0ac; --brand:#7c5cff; --brand2:#a78bfa;
-  --ok:#34c759; --warn:#f5a623; --err:#ff453a; --info:#0a84ff;
-  --grad:linear-gradient(135deg,#7c5cff 0%,#a78bfa 100%);
+  /* 暗色（默认） */
+  --bg:#0d0f14;
+  --panel:#151821;
+  --panel-2:#1c2030;
+  --line:#262c3a;
+  --txt:#e8eaf0;
+  --muted:#8b93a7;
+  --brand:#6d8cff;
+  --brand-2:#8fa6ff;
+  --brand-soft:rgba(109,140,255,.14);
+  --ok:#38d39f;
+  --warn:#ffb454;
+  --bad:#ff6b6b;
+  --chip:#20252f;
+  --nav-bg:#121521;
+  --nav-hover:#1c2230;
+  --input-bg:#10131c;
+  --shadow:0 8px 30px rgba(0,0,0,.35);
+  --grad:linear-gradient(135deg,#6d8cff 0%,#a06dff 100%);
+  --radius:14px;
+  --radius-sm:9px;
 }
-*{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-  background:var(--bg);color:var(--txt);font-size:14px;line-height:1.6;}
-a{color:var(--brand2);text-decoration:none;}
-button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
-input,select,textarea{font-family:inherit;font-size:14px;}
-::-webkit-scrollbar{width:9px;height:9px;}
-::-webkit-scrollbar-thumb{background:#333a47;border-radius:5px;}
+[data-theme="light"]{
+  --bg:#f4f6fb;
+  --panel:#ffffff;
+  --panel-2:#f7f8fc;
+  --line:#e6e9f0;
+  --txt:#1c2030;
+  --muted:#6b7280;
+  --brand:#4f6cf0;
+  --brand-2:#3b57c4;
+  --brand-soft:rgba(79,108,240,.12);
+  --ok:#12a16a;
+  --warn:#d98212;
+  --bad:#e04545;
+  --chip:#eef1f7;
+  --nav-bg:#ffffff;
+  --nav-hover:#f2f5fb;
+  --input-bg:#fafbfe;
+  --shadow:0 6px 24px rgba(30,45,90,.08);
+  --grad:linear-gradient(135deg,#4f6cf0 0%,#8b5cf6 100%);
+}
+/* 亮色主题下，表格操作按钮同步为亮色渐变（覆盖上面的暗色具体值） */
+[data-theme="light"] table .btn-edit,
+[data-theme="light"] table .btn{background:linear-gradient(135deg,#4f6cf0 0%,#8b5cf6 100%)}
+[data-theme="light"] table .btn-delete{background:#e04545}
 
-/* ===== Layout ===== */
-#app{display:flex;min-height:100vh;}
-#sidebar{width:240px;background:var(--panel);border-right:1px solid var(--line);
-  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;}
-.brand{padding:20px 18px;font-weight:700;font-size:17px;border-bottom:1px solid var(--line);
-  display:flex;align-items:center;gap:10px;}
-.brand .logo{width:30px;height:30px;border-radius:9px;background:var(--grad);
-  display:flex;align-items:center;justify-content:center;font-size:15px;color:#fff;}
-.nav{flex:1;padding:10px 8px;overflow:auto;}
-.nav a{display:flex;align-items:center;gap:11px;padding:11px 14px;margin:2px 0;border-radius:10px;
-  color:var(--muted);font-weight:500;transition:.15s;}
-.nav a .ic{font-size:16px;width:20px;text-align:center;}
-.nav a:hover{background:var(--panel2);color:var(--txt);}
-.nav a.active{background:var(--grad);color:#fff;}
-.side-foot{padding:14px 18px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);}
-#main{flex:1;min-width:0;display:flex;flex-direction:column;}
-#topbar{height:60px;background:var(--panel);border-bottom:1px solid var(--line);
-  display:flex;align-items:center;padding:0 22px;gap:16px;position:sticky;top:0;z-index:40;}
-#topbar h1{font-size:16px;font-weight:600;}
-#topbar .spacer{flex:1;}
-#topbar .who{color:var(--muted);font-size:13px;}
-#content{padding:22px;flex:1;max-width:1400px;width:100%;margin:0 auto;}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg);color:var(--txt);
+  -webkit-font-smoothing:antialiased;
+  -webkit-text-size-adjust:100%;
+  overflow-x:hidden;
+  transition:background .25s ease,color .25s ease;
+}
+a{color:inherit;text-decoration:none}
+::selection{background:var(--brand-soft);color:var(--txt)}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
 
-/* ===== Generic ===== */
-.view{display:none;}
-.view.active{display:block;}
-.page-head{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
-.page-head h2{font-size:20px;}
-.muted{color:var(--muted);}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px;}
-.card h3{font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
-.row{display:flex;gap:14px;flex-wrap:wrap;}
+/* ===================== 按钮 ===================== */
+button{
+  font:inherit;cursor:pointer;border:none;border-radius:var(--radius-sm);
+  padding:8px 15px;background:var(--chip);color:var(--txt);
+  transition:transform .12s ease,background .15s ease,box-shadow .15s ease,color .15s ease;
+  white-space:nowrap;
+}
+button:hover{background:var(--nav-hover)}
+button:active{transform:scale(.96)}
+button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+button.primary{
+  background:var(--grad);color:#fff;font-weight:600;
+  box-shadow:0 4px 14px rgba(109,140,255,.35);
+}
+button.primary:hover{filter:brightness(1.06);box-shadow:0 6px 20px rgba(109,140,255,.45)}
+button.danger{background:var(--bad);color:#fff}
+button.danger:hover{filter:brightness(1.08)}
+button.ghost{background:transparent;border:1px solid var(--line)}
+button.ghost:hover{background:var(--nav-hover)}
 
-/* ===== Buttons (胶囊, 与路由规则页一致) ===== */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  padding:8px 16px;border-radius:14px;font-weight:600;font-size:13px;transition:.15s;white-space:nowrap;}
-.btn-primary{background:var(--grad);color:#fff;}
-.btn-primary:hover{filter:brightness(1.08);}
-.btn-ghost{background:var(--panel2);border:1px solid var(--line);color:var(--txt);}
-.btn-sm{padding:5px 12px;font-size:12px;}
-.btn-group{display:flex;align-items:center;line-height:1;vertical-align:middle;}
-.btn-group .btn{border-radius:0;margin-left:-1px;}
-.btn-group .btn:first-child{border-radius:14px 0 0 14px;margin-left:0;}
-.btn-group .btn:last-child{border-radius:0 14px 14px 0;}
-.btn-edit{background:var(--grad);color:#fff;}
-.btn-delete{background:linear-gradient(135deg,#ff453a,#ff6b5b);color:#fff;}
-.btn-test{background:linear-gradient(135deg,#0a84ff,#3da9ff);color:#fff;}
+/* ===================== 侧栏 ===================== */
+.side{
+  position:fixed;top:0;left:0;bottom:0;width:232px;
+  background:var(--nav-bg);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;z-index:30;
+  transition:transform .25s cubic-bezier(.4,0,.2,1);
+}
+.side .brand{
+  padding:22px 18px 18px;font-weight:800;font-size:17px;letter-spacing:.3px;
+  border-bottom:1px solid var(--line);
+  background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.side .brand small{display:block;color:var(--muted);font-weight:500;font-size:11px;margin-top:4px;letter-spacing:0}
+.nav{flex:1;padding:10px 10px;overflow-y:auto}
+.nav a{
+  display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:var(--radius-sm);
+  color:var(--muted);margin:2px 0;font-size:13.5px;font-weight:500;
+  transition:background .15s ease,color .15s ease,transform .12s ease;
+}
+.nav a .ic{font-size:16px;line-height:1;width:20px;text-align:center}
+.nav a:hover{background:var(--nav-hover);color:var(--txt)}
+.nav a.active{
+  background:var(--brand-soft);color:var(--brand);
+  box-shadow:inset 3px 0 0 var(--brand);
+}
+.side .foot{padding:12px;display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line)}
+.side .foot .side-btn{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:9px 12px;font-size:13px;background:transparent;color:var(--muted);
+  border:none;border-radius:999px;cursor:pointer;transition:background .14s ease,color .14s ease;
+}
+.side .foot .side-btn .ic{font-size:15px;line-height:1}
+.side .foot .side-btn:hover{background:var(--nav-hover);color:var(--txt)}
+.side .foot .side-btn:hover .ic{filter:none}
+.side .foot .side-btn:last-child{color:var(--muted)}
+.side .foot .side-btn:last-child .ic{color:var(--muted)}
+.side .foot .side-btn:last-child:hover{background:color-mix(in srgb,var(--bad) 12%,transparent);color:var(--bad)}
+.side .foot .side-btn:last-child:hover .ic{color:var(--bad)}
+.side .foot .ver{font-size:11px;color:var(--muted);padding:6px 12px 2px}
 
-/* ===== Table ===== */
-table{width:100%;border-collapse:collapse;}
-th,td{text-align:left;padding:11px 12px;vertical-align:middle;border-bottom:1px solid var(--line);}
-th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px;}
-tbody tr:hover{background:rgba(255,255,255,.02);}
-.tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;}
-.tag-builtin{background:rgba(10,132,255,.16);color:#5ab0ff;}
-.tag-custom{background:rgba(124,92,255,.18);color:var(--brand2);}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
-.dot.g{background:var(--ok);}
-.dot.r{background:var(--err);}
-.dot.y{background:var(--warn);}
-code{font-family:"SF Mono",Consolas,monospace;background:var(--panel2);padding:2px 7px;border-radius:6px;font-size:12.5px;}
+/* ===================== 主区 & 顶栏 ===================== */
+.main{margin-left:232px;min-height:100vh}
+.header{
+  position:sticky;top:0;z-index:20;
+  background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line);padding:12px 20px;
+  display:flex;align-items:center;gap:14px;
+}
+.burger{display:none;flex-direction:column;gap:4px;padding:7px;background:transparent;border-radius:8px}
+.burger:hover{background:var(--nav-hover)}
+.burger span{width:20px;height:2px;background:var(--txt);border-radius:2px;display:block;transition:transform .2s}
+.header h1{font-size:15.5px;font-weight:700;flex:1;letter-spacing:.2px}
+.header .clock{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.theme-btn{
+  background:var(--chip);border-radius:50%;width:36px;height:36px;padding:0;
+  font-size:16px;display:flex;align-items:center;justify-content:center;margin-left:auto;
+  box-shadow:0 2px 8px rgba(0,0,0,.12);
+}
+.theme-btn:hover{background:var(--nav-hover);transform:rotate(15deg)}
+.scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:25;opacity:0;transition:opacity .2s}
+.scrim.on{display:block;opacity:1}
 
-/* ===== Form ===== */
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
-.field label{font-size:13px;color:var(--muted);font-weight:500;}
-.field input,.field select,.field textarea{background:var(--panel2);border:1px solid var(--line);
-  border-radius:10px;padding:10px 12px;color:var(--txt);outline:none;}
-.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--brand);}
-.field .hint{font-size:12px;color:var(--muted);}
-.full{grid-column:1/-1;}
+/* ===================== 通用块 ===================== */
+.wrap{padding:20px;max-width:1240px}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px;margin-bottom:16px;box-shadow:var(--shadow);
+}
+.card h2{font-size:15px;font-weight:700;margin-bottom:2px}
+.card .desc{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+.muted{color:var(--muted)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 
-/* ===== Toast ===== */
-#toast-wrap{position:fixed;top:22px;left:50%;transform:translateX(-50%);z-index:99999;
-  display:flex;flex-direction:column;gap:8px;pointer-events:none;}
-.toast{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;
-  font-size:13px;box-shadow:0 12px 30px rgba(0,0,0,.45);pointer-events:auto;
-  display:flex;align-items:center;gap:10px;min-width:280px;max-width:520px;animation:sl .2s;}
-.toast.ok{border-left:4px solid var(--ok);}
-.toast.err{border-left:4px solid var(--err);}
-.toast.info{border-left:4px solid var(--info);}
-.toast.warn{border-left:4px solid var(--warn);}
-@keyframes sl{from{opacity:0;transform:translateY(-8px);}to{opacity:1;transform:translateY(0);}}
+/* ===================== 表格 ===================== */
+.table-wrap{overflow-x:auto;border-radius:var(--radius-sm)}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+th,td{text-align:left;padding:11px 12px;vertical-align:middle;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.3px;text-transform:uppercase;background:var(--panel-2);position:sticky;top:0}
+tbody tr{align-items:center;transition:background .12s ease}
+tbody tr:hover{background:var(--panel-2)}
+tbody tr:last-child td{border-bottom:none}
 
-/* ===== Modal ===== */
-.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;
-  display:flex;align-items:center;justify-content:center;padding:20px;}
-.modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;
-  width:100%;max-width:560px;max-height:90vh;overflow:auto;padding:24px;}
-.modal h3{font-size:18px;margin-bottom:16px;}
-.modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+/* —— 操作按钮组：与 .primary 统一的渐变色按钮（无外框底色） —— */
+.actions{display:inline-flex;align-items:center;gap:6px}
+/* 对齐核心：名称列与操作列使用完全相同的 height / padding / box-sizing / flex 居中基准，
+   由 tr 的 align-items:center 保证整行（含两行名称的单元格）在 <tr> 内垂直居中，
+   按钮组中线 = 名称中线。 */
+td.row-actions, td.cell-name{
+  display:flex!important;align-items:center;
+  height:48px;padding:11px 12px!important;box-sizing:border-box;
+  vertical-align:middle;background:transparent!important;
+}
+td.row-actions{justify-content:flex-end;flex-wrap:nowrap;white-space:nowrap}
+td.cell-name{justify-content:flex-start;gap:10px}
+td.cell-name .cell-name-inner{display:flex;flex-direction:column;justify-content:center;line-height:1.35;width:auto}
+.btn-group{
+  display:inline-flex;align-items:center;justify-content:center;gap:0;
+  background:transparent;   /* 无外壳底色 —— 你要求：不要灰色容器 */
+  padding:0;border-radius:0;box-shadow:none;
+  line-height:1;vertical-align:middle;   /* ← 防止按钮文字相对胶囊基线偏移 */
+}
+table .btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:4px;
+  height:28px;padding:0 15px;font-size:12.5px;line-height:1;font-weight:600;
+  color:#fff;
+  background:linear-gradient(135deg,#6d8cff 0%,#a06dff 100%);  /* 与 .primary 主按钮完全一致的渐变 */
+  border:none;cursor:pointer;position:static;overflow:visible;flex:0 0 auto;
+  box-shadow:0 3px 10px rgba(109,140,255,.28);
+  transition:filter .14s ease,transform .12s ease,box-shadow .14s ease;
+}
+/* 相邻圆角拼成胶囊整体：首按钮左圆角、末按钮右圆角、中间贴合 */
+table .btn:first-child{border-radius:14px 0 0 14px}
+table .btn:last-child{border-radius:0 14px 14px 0}
+table .btn:only-child{border-radius:14px}
+table .btn + .btn{margin-left:1px}   /* 1px 接缝，形成胶囊分段感 */
+table .btn:hover{filter:brightness(1.07);box-shadow:0 5px 16px rgba(109,140,255,.4);z-index:1}
+table .btn:active{transform:scale(.96)}
+table .btn-edit{background:linear-gradient(135deg,#6d8cff 0%,#a06dff 100%)}
+table .btn-delete{background:#ff6b6b}
+table .btn-delete:hover{filter:brightness(1.08)}
+.btn-group .btn:not(:last-child)::after{content:"";display:none}
+.btn-group .btn{position:relative}
 
-/* ===== Dashboard ===== */
-.dash-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
-.stat-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;position:relative;overflow:hidden;}
-.stat-card .ic{position:absolute;right:16px;top:16px;font-size:26px;opacity:.25;}
-.stat-card .label{color:var(--muted);font-size:13px;margin-bottom:8px;}
-.stat-card .val{font-size:30px;font-weight:700;}
-.stat-card .sub{font-size:12px;color:var(--muted);margin-top:4px;}
-.dash-row{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:16px;}
-.dash-row-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
-.storage-banner{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 18px;
-  display:flex;align-items:center;gap:12px;margin-bottom:16px;}
-.storage-banner.mem{border-color:var(--warn);background:rgba(245,166,35,.08);}
-.req-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;}
-.req-item:last-child{border-bottom:none;}
-.req-time{color:var(--muted);font-size:12px;width:64px;flex-shrink:0;}
-.req-model{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.req-lat{color:var(--muted);font-size:12px;width:60px;text-align:right;}
-.empty-state{text-align:center;padding:40px 20px;color:var(--muted);}
-.empty-state .big{font-size:44px;margin-bottom:10px;opacity:.6;}
-.empty-state p{margin-bottom:14px;}
-.bar-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:13px;}
-.bar-label{width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;}
-.bar-track{flex:1;background:var(--panel2);border-radius:6px;height:16px;overflow:hidden;}
-.bar-fill{height:100%;background:var(--grad);border-radius:6px;transition:width .4s;}
-.bar-val{width:48px;text-align:right;font-size:12px;color:var(--muted);flex-shrink:0;}
-.health-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;}
-.health-card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px;}
-.health-card .hn{font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
-.ring{display:flex;align-items:center;gap:10px;}
-.ring .num{font-size:20px;font-weight:700;}
-.quick-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
-.quick-btn{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:18px;
-  text-align:center;transition:.15s;cursor:pointer;color:var(--txt);}
-.quick-btn:hover{border-color:var(--brand);transform:translateY(-2px);}
-.quick-btn .qi{font-size:26px;margin-bottom:8px;display:block;}
-.guide-step{display:flex;gap:14px;margin-bottom:16px;}
-.guide-num{width:32px;height:32px;border-radius:50%;background:var(--grad);color:#fff;
-  display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;}
-.guide-body h4{margin-bottom:4px;}
-.guide-body p{color:var(--muted);font-size:13px;}
-.guide-body code{display:block;margin-top:6px;padding:8px 10px;word-break:break-all;}
+/* ===================== 状态点 / 标签 / 进度条 ===================== */
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent)}
+.dot.g{background:var(--ok);color:var(--ok)}
+.dot.r{background:var(--bad);color:var(--bad)}
+.dot.y{background:var(--warn);color:var(--warn)}
+.tag{display:inline-flex;align-items:center;padding:2px 9px;border-radius:20px;background:var(--chip);color:var(--muted);font-size:11.5px;font-weight:500}
+.tag.custom{background:var(--brand-soft);color:var(--brand);font-weight:600}
+.bar{height:6px;background:var(--line);border-radius:20px;overflow:hidden;min-width:90px;display:inline-block;vertical-align:middle}
+.bar i{display:block;height:100%;border-radius:20px;background:var(--grad)}
 
-/* ===== Misc ===== */
-.badge{font-size:11px;padding:2px 8px;border-radius:6px;background:var(--panel2);color:var(--muted);}
-.spinner{width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:sp 1s linear infinite;}
-@keyframes sp{to{transform:rotate(360deg);}}
-@media(max-width:900px){
-  #sidebar{width:64px;}
-  .brand span,.nav a span:not(.ic),.side-foot{display:none;}
-  .dash-grid,.quick-grid{grid-template-columns:repeat(2,1fr);}
-  .dash-row,.dash-row-2{grid-template-columns:1fr;}
+/* ===================== 表单 ===================== */
+label{display:block;margin:12px 0 5px;color:var(--muted);font-size:12.5px;font-weight:500}
+input,select,textarea{
+  font:inherit;padding:9px 12px;border-radius:var(--radius-sm);
+  border:1px solid var(--line);background:var(--input-bg);color:var(--txt);
+  width:100%;max-width:440px;transition:border-color .15s,box-shadow .15s;
+}
+input:focus,select:focus,textarea:focus{
+  outline:none;border-color:var(--brand);
+  box-shadow:0 0 0 3px var(--brand-soft);
+}
+input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);transform:scale(1.1);margin-right:6px}
+
+/* ===================== 弹窗 ===================== */
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px)}
+.modal.on{display:flex;animation:fade .18s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.modal .card{width:100%;max-width:560px;margin:0;animation:pop .2s cubic-bezier(.4,0,.2,1)}
+@keyframes pop{from{transform:scale(.96) translateY(8px);opacity:0}to{transform:none;opacity:1}}
+.modal .x{float:right;background:transparent;color:var(--muted);font-size:20px;padding:0 4px;line-height:1}
+.modal .x:hover{color:var(--txt);background:transparent}
+.alert{background:color-mix(in srgb,var(--warn) 12%,transparent);border:1px solid var(--warn);color:var(--warn);padding:10px 13px;border-radius:var(--radius-sm);margin-bottom:12px;font-size:13px}
+
+/* ===================== 存储状态指示器 ===================== */
+.storage-status{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:12px;font-weight:600;color:var(--muted);
+  padding:5px 11px;border-radius:20px;border:1px solid var(--line);
+  background:var(--panel);white-space:nowrap;cursor:default;
+}
+.storage-status .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.storage-status.ok{color:#1a9c5b;border-color:color-mix(in srgb,#1a9c5b 45%,transparent);background:color-mix(in srgb,#1a9c5b 8%,transparent)}
+.storage-status.ok .dot{background:#1a9c5b;box-shadow:0 0 0 3px color-mix(in srgb,#1a9c5b 20%,transparent)}
+.storage-status.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 55%,transparent);background:color-mix(in srgb,var(--warn) 10%,transparent)}
+.storage-status.warn .dot{background:var(--warn);box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 22%,transparent);animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+/* ===================== Toast ===================== */
+.toast{
+  position:fixed;top:22px;left:50%;transform:translateX(-50%);
+  background:var(--panel);color:var(--txt);padding:11px 20px;border-radius:12px;
+  z-index:99999;font-size:13px;font-weight:500;border:1px solid var(--line);box-shadow:var(--shadow);
+  opacity:1;pointer-events:none;max-width:90vw
+}
+
+/* ===================== 登录页 ===================== */
+#login-page{background:radial-gradient(1200px 600px at 50% -10%,color-mix(in srgb,var(--brand) 16%,transparent),var(--bg) 60%)}
+#login-form{box-shadow:var(--shadow);border:1px solid var(--line)}
+#login-form h2{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800}
+
+/* ===================== 响应式 ===================== */
+@media(max-width:720px){
+  .burger{display:flex}
+  .side{transform:translateX(-100%);width:210px}
+  .side.on{transform:translateX(0)}
+  .main{margin-left:0}
+  .header h1{font-size:14px}
+  .wrap{padding:14px}
+  .card{padding:14px}
+  table{font-size:12px}
+  th,td{padding:8px 7px}
+  input,select,textarea{max-width:100%}
+  .header .clock{display:none}
+  table .btn{height:34px;min-width:50px;padding:0 11px}
+}
+
+/* ================== Dashboard ================== */
+.ds{display:flex;flex-direction:column;gap:16px}
+.ds-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.ds-head h2{font-size:20px}
+.ds-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media(max-width:900px){.ds-cards{grid-template-columns:repeat(2,1fr)}}
+.ds-card{display:flex;align-items:center;gap:14px;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;transition:transform .15s,box-shadow .15s}
+.ds-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.ds-card-ic{font-size:26px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:12px;background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;flex-shrink:0}
+.ds-card[data-tone="green"] .ds-card-ic{background:linear-gradient(135deg,#00b894,#55efc4)}
+.ds-card[data-tone="orange"] .ds-card-ic{background:linear-gradient(135deg,#e17055,#fab1a0)}
+.ds-card[data-tone="purple"] .ds-card-ic{background:linear-gradient(135deg,#6c5ce7,#a29bfe)}
+.ds-card[data-tone="blue"] .ds-card-ic{background:linear-gradient(135deg,#0984e3,#74b9ff)}
+.ds-card-body{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ds-card-label{font-size:12px;color:var(--muted);white-space:nowrap}
+.ds-card-value{font-size:24px;font-weight:700;line-height:1.1}
+.ds-card-sub{font-size:11px;color:var(--muted)}
+.ds-banner{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid var(--line)}
+.ds-banner-ok{background:rgba(0,184,148,.1);border-color:rgba(0,184,148,.4)}
+.ds-banner-warn{background:rgba(225,112,85,.1);border-color:rgba(225,112,85,.4)}
+.ds-banner>div{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.ds-banner b{font-size:13px}
+.ds-banner small{font-size:11px;color:var(--muted)}
+.ds-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+@media(max-width:900px){.ds-grid{grid-template-columns:1fr}}
+.ds-col-2{grid-column:span 1}
+.card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.card-head h3{font-size:14px}
+.ds-loading,.ds-empty{padding:32px;text-align:center;color:var(--muted)}
+.ds-rank-row{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px}
+.ds-rank-n{color:var(--muted);width:22px}
+.ds-rank-name{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-bar{flex:2;height:8px;background:var(--line);border-radius:4px;overflow:hidden;min-width:60px}
+.ds-bar>i{display:block;height:100%;background:linear-gradient(90deg,#6c5ce7,#a29bfe);border-radius:4px}
+.ds-rank-c{width:40px;text-align:right;color:var(--muted)}
+.ds-prov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.ds-prov{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:10px}
+.ds-prov-head{display:flex;align-items:center;gap:8px;font-size:13px}
+.ds-prov-head b{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-prov-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.ds-bar{height:6px}
+/* 使用指南 */
+.guide-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px}
+.guide-card{max-width:620px;width:100%;max-height:88vh;overflow:auto}
+.guide-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.guide-steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px}
+.guide-steps li{padding:10px 12px;border-left:3px solid #6c5ce7;background:rgba(108,92,231,.06);border-radius:0 8px 8px 0)}
+.guide-steps b{font-size:13px}
+.guide-steps p{font-size:12px;color:var(--muted);margin:4px 0 0}
+.guide-steps code{background:var(--line);padding:1px 5px;border-radius:4px;font-size:11px}
+.guide-foot{display:flex;justify-content:space-between;align-items:center;margin-top:16px;font-size:12px}
+@media(max-width:480px){
+  .card{padding:12px}
+  .brand small{display:none}
 }
 </style>
 </head>
 <body>
-<div id="app">
-  <aside id="sidebar">
-    <div class="brand"><div class="logo">🛡</div><span>iRouter</span></div>
-    <nav class="nav" id="nav">
-      <a href="#dashboard" data-view="dashboard"><span class="ic">🏠</span><span>首页</span></a>
-      <a href="#providers" data-view="providers"><span class="ic">📡</span><span>供应商</span></a>
-      <a href="#routes" data-view="routes"><span class="ic">⚙️</span><span>路由规则</span></a>
-      <a href="#keys" data-view="keys"><span class="ic">🔑</span><span>API Keys</span></a>
-      <a href="#models" data-view="models"><span class="ic">🧩</span><span>模型管理</span></a>
-      <a href="#settings" data-view="settings"><span class="ic">⚙️</span><span>系统设置</span></a>
-    </nav>
-    <div class="side-foot">v<span id="ver"></span> · <a href="#" id="helpLink">使用指南</a></div>
-  </aside>
 
-  <div id="main">
-    <header id="topbar">
-      <h1 id="pageTitle">管理首页</h1>
-      <div class="spacer"></div>
-      <span id="storageDot" class="badge">检查存储…</span>
-      <span class="who" id="who"></span>
-      <button class="btn btn-ghost btn-sm" id="logoutBtn">退出</button>
-    </header>
-    <div id="content"></div>
+<div class="scrim" id="scrim"></div>
+
+<!-- ================= 登录页（默认隐藏，JS 校验 session 后决定是否显示） ================= -->
+<div id="login-page" style="position:fixed;inset:0;z-index:200;background:var(--bg);display:none;align-items:center;justify-content:center;padding:16px">
+ <form id="login-form" class="card" style="width:100%;max-width:360px;margin:0;box-shadow:0 12px 40px rgba(0,0,0,.35)" onsubmit="return false">
+  <div style="text-align:center;margin-bottom:16px">
+   <div style="font-size:26px">⚡</div>
+   <h2 style="margin:4px 0 2px;font-size:17px">irouter 管理后台</h2>
+   <div class="muted" style="font-size:12px">LLM 聚合网关 · v{{VERSION}}</div>
   </div>
+  <label>用户名</label>
+  <input id="login_user" type="text" autocomplete="username" value="admin" required>
+  <label>密码</label>
+  <input id="login_pass" type="password" autocomplete="current-password" placeholder="默认密码 admin123" required>
+  <div id="login_err" class="alert" style="display:none;margin-top:12px"></div>
+  <button id="login_btn" class="primary" style="width:100%;margin-top:14px;padding:10px;font-size:14px">登 录</button>
+  <p class="muted" style="font-size:11px;text-align:center;margin-top:14px;line-height:1.6">
+   首次登录请使用默认密码 <b>admin123</b><br>登录后请在左下角「修改密码」
+  </p>
+ </form>
 </div>
 
-<div id="toast-wrap"></div>
-
-<!-- ===== Templates ===== -->
-<template id="tpl-dashboard">
-  <div class="view" id="view-dashboard">
-    <div class="page-head"><h2>🏠 管理首页</h2>
-      <span class="muted">数据每 30 秒自动刷新 · 最后更新 <span id="dashUpdated">-</span></span>
-      <div class="spacer" style="flex:1"></div>
-      <button class="btn btn-ghost btn-sm" id="dashRefresh">🔄 刷新</button>
-      <button class="btn btn-primary btn-sm" id="dashGuide">❔ 使用指南</button>
-    </div>
-    <div id="storageBanner"></div>
-    <div class="dash-grid" id="statusCards"></div>
-    <div class="dash-row">
-      <div class="card"><h3>📈 最近请求</h3><div id="recentRequests"></div></div>
-      <div class="card"><h3>🏆 模型调用排行</h3><div id="modelRanking"></div></div>
-    </div>
-    <div class="card"><h3>📡 供应商健康度</h3><div id="providerHealth" class="health-grid"></div></div>
-    <div class="dash-row-2">
-      <div class="card"><h3>⚡ 快速操作</h3>
-        <div class="quick-grid">
-          <div class="quick-btn" data-go="providers"><span class="qi">＋</span>添加供应商</div>
-          <div class="quick-btn" data-go="routes"><span class="qi">＋</span>添加路由规则</div>
-          <div class="quick-btn" data-go="keys"><span class="qi">🔑</span>配置 API Key</div>
-          <div class="quick-btn" id="qRefresh"><span class="qi">🔄</span>刷新数据</div>
-        </div>
-      </div>
-      <div class="card"><h3>ℹ️ 系统信息</h3>
-        <table>
-          <tbody>
-            <tr><td>版本</td><td id="sysVer">-</td></tr>
-            <tr><td>运行模式</td><td id="sysMode">-</td></tr>
-            <tr><td>数据存储</td><td id="sysKV">-</td></tr>
-            <tr><td>持久化</td><td id="sysPersist">-</td></tr>
-            <tr><td>代理端点</td><td><code>POST /v1/chat/completions</code></td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+<!-- ================= 修改密码弹窗 ================= -->
+<div class="modal" id="changePassModal">
+ <div class="card" style="max-width:400px;width:100%;margin:0">
+  <h2 style="margin:0 0 12px">修改后台密码</h2>
+  <label>原密码</label>
+  <input id="cp_old" type="password" autocomplete="current-password">
+  <label>新密码（至少 6 位）</label>
+  <input id="cp_new" type="password" autocomplete="new-password">
+  <div id="cp_err" class="alert" style="display:none;margin-top:10px"></div>
+  <div class="row" style="margin-top:14px;justify-content:flex-end">
+   <button onclick="closeChangePass()">取消</button>
+   <button class="primary" onclick="submitChangePass()">确认修改</button>
   </div>
-</template>
+ </div>
+</div>
 
-<template id="tpl-providers">
-  <div class="view" id="view-providers">
-    <div class="page-head"><h2>📡 供应商管理</h2>
-      <div class="spacer" style="flex:1"></div>
-      <button class="btn btn-primary btn-sm" id="addProvider">＋ 添加供应商</button></div>
-    <div class="card"><table>
-      <thead><tr><th>名称</th><th>标识</th><th>状态</th><th>类型</th><th>限额</th><th style="text-align:right">操作</th></tr></thead>
-      <tbody id="providersBody"></tbody>
-    </table></div>
-  </div>
-</template>
+<aside class="side" id="side">
+ <div class="brand">⚡ irouter<small>LLM 聚合网关 v{{VERSION}}</small></div>
+ <nav class="nav" id="nav">
+  <a href="#dashboard" data-tab="dashboard" class="active"><span class="ic">🏠</span><span>首页</span></a>
+  <a href="#providers" data-tab="providers"><span class="ic">📡</span><span>供应商</span></a>
+  <a href="#keys" data-tab="keys"><span class="ic">🔑</span><span>Keys</span></a>
+  <a href="#latency" data-tab="latency"><span class="ic">📊</span><span>延迟</span></a>
+  <a href="#usage" data-tab="usage"><span class="ic">💰</span><span>用量</span></a>
+  <a href="#logs" data-tab="logs"><span class="ic">📋</span><span>日志</span></a>
+  <a href="#routes" data-tab="routes"><span class="ic">⚙️</span><span>路由规则</span></a>
+ </nav>
+ <div class="foot">
+   <button class="side-btn" onclick="openChangePass()"><span class="ic">🔒</span><span>修改密码</span></button>
+   <button class="side-btn" onclick="logout()"><span class="ic">⏻</span><span>退出登录</span></button>
+   <div class="ver" id="ver">v{{VERSION}}</div>
+ </div>
+</aside>
 
-<template id="tpl-routes">
-  <div class="view" id="view-routes">
-    <div class="page-head"><h2>⚙️ 路由规则</h2>
-      <span class="muted">按优先级从上到下匹配，命中即转发</span>
-      <div class="spacer" style="flex:1"></div>
-      <button class="btn btn-primary btn-sm" id="addRoute">＋ 添加规则</button></div>
-    <div class="card"><table>
-      <thead><tr><th>优先级</th><th>匹配模式</th><th>供应商</th><th>兜底</th><th style="text-align:right">操作</th></tr></thead>
-      <tbody id="routesBody"></tbody>
-    </table></div>
-  </div>
-</template>
+<div class="main">
+ <div class="header">
+  <button class="burger" id="burger" aria-label="菜单"><span></span><span></span><span></span></button>
+  <h1 id="pageTitle">供应商</h1>
+  <span class="clock" id="clock"></span>
+  <span id="storageStatus" class="storage-status" title="存储状态">
+    <i class="dot"></i><span class="txt">检测中…</span>
+  </span>
+  <button id="themeBtn" class="theme-btn" title="切换亮色/暗色" aria-label="切换主题">🌙</button>
+ </div>
+ <div class="wrap" id="view"></div>
+</div>
 
-<template id="tpl-keys">
-  <div class="view" id="view-keys">
-    <div class="page-head"><h2>🔑 API Keys</h2>
-      <div class="spacer" style="flex:1"></div>
-      <select id="keyProvider" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--txt)"></select>
-      <button class="btn btn-primary btn-sm" id="addKey">＋ 添加 Key</button></div>
-    <div class="card"><table>
-      <thead><tr><th>Key</th><th>状态</th><th>失败次数</th><th style="text-align:right">操作</th></tr></thead>
-      <tbody id="keysBody"></tbody>
-    </table></div>
-  </div>
-</template>
-
-<template id="tpl-models"><div class="view" id="view-models">
-  <div class="page-head"><h2>🧩 模型管理</h2></div>
-  <div class="card"><p class="muted">模型由供应商自动上报，无需手动添加。此处展示当前已发现的所有模型。</p>
-    <div id="modelsList" class="row" style="margin-top:14px"></div></div>
-</div></template>
-
-<template id="tpl-settings"><div class="view" id="view-settings">
-  <div class="page-head"><h2>⚙️ 系统设置</h2></div>
-  <div class="card"><h3>代理配置</h3>
-    <div class="form-grid">
-      <div class="field"><label>Proxy Auth Key（客户端请求时 Bearer）</label>
-        <input id="f-proxyKey" placeholder="留空则不校验客户端"></div>
-      <div class="field"><label>请求超时（秒）</label>
-        <input id="f-timeout" type="number" value="60"></div>
-      <div class="field full"><label>允许的源（CORS，逗号分隔，* 为全部）</label>
-        <input id="f-cors" placeholder="*"></div>
-    </div>
-    <button class="btn btn-primary" id="saveSettings">保存设置</button>
-  </div>
-</div></template>
-
-<!-- Provider / Route / Key modals -->
-<template id="tpl-provider-modal"><div class="modal-back" id="providerBack">
-  <div class="modal"><h3 id="pmTitle">添加供应商</h3>
-    <div class="field"><label>名称</label><input id="pf-name" placeholder="如 OpenAI"></div>
-    <div class="field"><label>标识</label><input id="pf-id" placeholder="openai（唯一）"></div>
-    <div class="field"><label>Base URL</label><input id="pf-base" placeholder="https://api.openai.com/v1"></div>
-    <div class="field"><label>协议</label>
-      <select id="pf-proto"><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option></select></div>
-    <div class="field"><label>类型</label>
-      <select id="pf-type"><option value="builtin">内置</option><option value="custom">自建</option></select></div>
-    <div class="field"><label>每分钟限额（RPM，0=不限）</label><input id="pf-rpm" type="number" value="0"></div>
-    <div class="modal-foot"><button class="btn btn-ghost" id="pmCancel">取消</button>
-      <button class="btn btn-primary" id="pmSave">保存</button></div>
-  </div>
-</div></template>
-
-<template id="tpl-route-modal"><div class="modal-back" id="routeBack">
-  <div class="modal"><h3 id="rmTitle">添加路由规则</h3>
-    <div class="field"><label>优先级（数字越小越先匹配）</label><input id="rf-prio" type="number" value="100"></div>
-    <div class="field"><label>匹配模式</label><input id="rf-pattern" placeholder="如 gpt-5* 或 *（通配符）"></div>
-    <div class="field"><label>供应商（按顺序尝试）</label>
-      <select id="rf-providers" multiple style="height:120px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;color:var(--txt)"></select></div>
-    <div class="field"><label>兜底供应商（全部失败时）</label><select id="rf-fallback"></select></div>
-    <div class="modal-foot"><button class="btn btn-ghost" id="rmCancel">取消</button>
-      <button class="btn btn-primary" id="rmSave">保存</button></div>
-  </div>
-</div></template>
-
-<template id="tpl-key-modal"><div class="modal-back" id="keyBack">
-  <div class="modal"><h3 id="kmTitle">添加 API Key</h3>
-    <div class="field"><label>所属供应商</label><select id="kf-provider"></select></div>
-    <div class="field"><label>API Key</label><input id="kf-key" placeholder="sk-..." type="password"></div>
-    <div class="field"><label>备注</label><input id="kf-note" placeholder="可选"></div>
-    <div class="modal-foot"><button class="btn btn-ghost" id="kmCancel">取消</button>
-      <button class="btn btn-primary" id="kmSave">保存</button></div>
-  </div>
-</div></template>
-
-<!-- ===== Guide modal ===== -->
-<template id="tpl-guide"><div class="modal-back" id="guideBack" style="z-index:200">
-  <div class="modal" style="max-width:640px">
-    <h3>🚀 iRouter 使用指南</h3>
-    <p class="muted" style="margin-bottom:16px">照着 6 步走一遍，就能把你的 LLM 网关跑起来。</p>
-    <div id="guideSteps"></div>
-    <div class="modal-foot">
-      <label style="margin-right:auto;color:var(--muted);font-size:13px">
-        <input type="checkbox" id="guideDont"> 不再自动显示</label>
-      <button class="btn btn-primary" id="guideClose">开始使用</button>
-    </div>
-  </div>
-</template>
+<div class="modal" id="modal"><div class="card"><button class="x" onclick="closeModal()">×</button><div id="modalBody"></div></div></div>
 
 <script>
-'use strict';
-const $ = s => document.querySelector(s);
-const $$ = s => document.querySelectorAll(s);
-const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// ---------- 全局工具（全部显式挂到 window，杜绝 "is not defined"） ----------
+var $ = function(s){ return document.querySelector(s); };
+var esc = function(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); };
 
-/* ===== API ===== */
-let API_BASE = '';
-async function api(method, path, body){
-  const url = API_BASE + path;
-  let res;
-  try {
-    res = await fetch(url, {
-      method, credentials:'include',
-      headers: body ? {'content-type':'application/json'} : {},
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch(e) {
-    toast('❌ 网络错误：'+e.message,'err');
-    throw e;
-  }
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : {}; } catch(_) { data = {error: text || res.statusText}; }
-  if(!res.ok){
-    const msg = (data && (data.error || data.message)) || ('HTTP '+res.status+' '+res.statusText);
-    toast('❌ '+msg,'err');
-    const err = new Error(msg); err.status = res.status; err.data = data; throw err;
-  }
-  return data;
-}
-const get = p => api('GET', p);
-const post = (p,b) => api('POST', p, b);
-const put = (p,b) => api('PUT', p, b);
-const del = p => api('DELETE', p);
+window.closeModal = function(){ $('#modal').classList.remove('on'); };
 
-/* ===== Toast ===== */
-function toast(msg, type='info', opts){
+// 保存成功时的持久化状态后缀：内存模式下明确提示"重启会丢失"，不再静默
+window.storageSuffix = function(){
+  var el = document.getElementById('storageStatus');
+  if (el && el.classList.contains('warn')) return '（内存模式·重启会丢失，请启用 Deno KV）';
+  return '';
+};
+
+window.toast = function(msg, kind, opts){
   opts = opts || {};
-  const el = document.createElement('div');
-  el.className = 'toast ' + (type||'info');
-  el.innerHTML = (type==='ok'?'✅ ':type==='err'?'❌ ':type==='warn'?'⚠️ ':'ℹ️ ') + esc(msg);
-  $('#toast-wrap').appendChild(el);
-  const ms = opts.center ? 4000 : 3000;
-  setTimeout(()=>{ el.style.opacity='0'; setTimeout(()=>el.remove(),200); }, ms);
-}
+  var d = document.createElement('div');
+  d.className = 'toast toast-' + (kind || 'ok');
+  d.textContent = msg;
+  // 位置：默认屏幕顶部居中（opts.center 时改为垂直居中于屏幕中央）
+  var top = opts.center ? '50%' : '22px';
+  var trans = opts.center ? 'translate(-50%,-50%)' : 'translateX(-50%)';
+  d.style.cssText =
+    'position:fixed;top:' + top + ';left:50%;transform:' + trans +
+    ';background:var(--panel);color:var(--txt);padding:11px 20px;border-radius:12px;' +
+    'z-index:99999;font-size:13px;font-weight:500;border:1px solid ' + (kind==='err'?'var(--bad)':'var(--brand)') +
+    ';box-shadow:var(--shadow);max-width:90vw;pointer-events:none;opacity:0;transition:opacity .18s ease';
+  document.body.appendChild(d);
+  requestAnimationFrame(function(){ d.style.opacity = '1'; });
+  setTimeout(function(){ d.style.opacity = '0'; }, 1800);
+  setTimeout(function(){ d.remove(); }, 2200);
+};
 
-/* ===== State ===== */
-const PROVIDERS = window.PROVIDERS || [];
-const ROUTES = window.ROUTES || [];
-const KEYS = window.KEYS || [];
-let currentView = 'dashboard';
-let currentKeyProviderId = null;
-let dashboardTimer = null;
-
-/* ===== Routing helpers ===== */
-function uniq(a){ return Array.from(new Set(a)); }
-function providersMap(){ const m={}; for(const p of PROVIDERS) m[p.id]=p; return m; }
-
-/* ===== Storage status ===== */
-async function checkStorage(){
-  try {
-    const s = await get('/admin/api/storage/status');
-    const dot = $('#storageDot');
-    if(s && s.mode==='kv' && s.writable){ dot.textContent='🟢 已持久化 · KV'; dot.style.color='#34c759'; }
-    else { dot.textContent='🟡 内存模式 · 重启会丢失'; dot.style.color='#f5a623'; dot.style.cursor='pointer'; dot.onclick=()=>toast('请在 Deno Deploy → Settings → Deno KV 启用数据库','warn',{center:true}); }
-    return s || {mode:'memory'};
-  } catch(e){ $('#storageDot').textContent='⚠️ 存储未知'; return {mode:'memory'}; }
-}
-
-/* ===== ===== ===== Dashboard ===== ===== ===== */
-function renderDashboard(){
-  // 立即用本地数据渲染（不消失原则），再异步同步
-  renderDashboardFromData({
-    stats:{ providers: PROVIDERS.length, routes: ROUTES.length, keys: KEYS.length, totalRequests: 0, successRate: 0, avgLatency: 0 },
-    modelRanking:[], providerHealth:[], recentRequests:[], storage:{mode:'kv',writable:true},
-    system:{ version: ($('#ver')&&$('#ver').textContent)||'2.5.1', kv:true, persist:true },
+window.api = function(path, opts){
+  opts = opts || {};
+  return fetch('/admin/api' + path, {
+    method: opts.method || 'GET',
+    headers: Object.assign({'Accept':'application/json'}, opts.body ? {'Content-Type':'application/json'} : {}),
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    credentials: 'include'
+  }).then(function(r){
+    // 无论成功失败，都先尝试解析 JSON；拿不到再读纯文本 —— 保证错误信息不空
+    return r.text().then(function(txt){
+      var data = null;
+      if(txt){ try { data = JSON.parse(txt); } catch(e){ data = null; } }
+      if(r.ok){
+        // 后端业务层也可能返回 {ok:false, error:...}，一并视为错误
+        if(data && data.ok === false && data.error) throw new Error(data.error);
+        return data;
+      }
+      var msg = (data && (data.error || data.message)) || txt || ('HTTP ' + r.status);
+      var err = new Error(msg);
+      err.status = r.status; err.path = path; err.response = data;
+      throw err;
+    });
   });
-  fetchDashboard();
+};
+
+window.confirmDanger = function(msg){
+  return new Promise(function(res){ res(window.confirm(msg)); });
+};
+
+// ---------- 汉堡菜单（三道杠）：事件绑定，不用 onclick ----------
+function initBurger(){
+  var burger = $('#burger'), side = $('#side'), scrim = $('#scrim');
+  if(!burger) return;
+  burger.addEventListener('click', function(){
+    side.classList.add('on');
+    scrim.classList.add('on');
+  });
+  scrim.addEventListener('click', function(){
+    side.classList.remove('on');
+    scrim.classList.remove('on');
+  });
 }
-async function fetchDashboard(){
-  try {
-    const j = await get('/admin/api/dashboard');
-    if(j && j.ok && j.data){ renderDashboardFromData(j.data); }
-  } catch(e){ /* 已 toast，保留本地渲染 */ }
+
+// ---------- 菜单点击：事件委托（不依赖任何 onclick 函数） ----------
+function initNav(){
+  var nav = $('#nav');
+  if(!nav) return;
+  nav.addEventListener('click', function(e){
+    var link = e.target.closest('a[data-tab]');
+    if(!link) return;
+    e.preventDefault();
+    var tab = link.dataset.tab;
+    // 移动端点击后自动收起侧栏
+    $('#side').classList.remove('on');
+    $('#scrim').classList.remove('on');
+    // 高亮
+    nav.querySelectorAll('a').forEach(function(a){ a.classList.remove('active'); });
+    link.classList.add('active');
+    // 切换内容
+    if(window.loadTab) window.loadTab(tab);
+    // 更新 URL hash（不触发跳转）
+    if(history.replaceState) history.replaceState(null, '', '#'+tab);
+  });
 }
-function renderDashboardFromData(d){
-  d = d || {};
-  const s = d.stats || {};
-  const cards = [
-    {label:'供应商', val:s.providers||0, sub:'已配置', ic:'📡'},
-    {label:'路由规则', val:s.routes||0, sub:'匹配中', ic:'⚙️'},
-    {label:'API Keys', val:s.keys||0, sub:'有效 Key', ic:'🔑'},
-    {label:'总请求', val:s.totalRequests||0, sub:(s.successRate!=null?(s.successRate+'% 成功 · '+ (s.avgLatency||0)+'ms'):'暂无数据'), ic:'🚀'},
+
+// ---------- 表格操作按钮：事件委托（data-action / data-id，根除"点击无反应"）----------
+// CSS 选择器安全转义（id 可能含特殊字符）
+function cssEscape(s){ return (window.CSS&&CSS.escape) ? CSS.escape(s) : String(s).replace(/[^a-zA-Z0-9_-]/g,'\\$&'); }
+
+function initTableActions(){
+  // 用事件委托绑定到 #view，任何动态渲染的行都生效（编辑/删除按钮）
+  var view = $('#view');
+  if(!view) return;
+  view.addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-action]');
+    if(!btn || btn.disabled) return;
+    var action = btn.dataset.action;
+    var id = btn.dataset.id;
+    if(!id) return;
+    if(action === 'edit'){ window.openProvider(id); }
+    else if(action === 'delete'){ window.deleteProvider(id); }
+    else if(action === 'edit-route'){
+      var tr = btn.closest('tr');
+      var ds = tr && tr.dataset ? tr.dataset : {};
+      var pattern = ds.pattern || ((tr && tr.cells[0]) ? tr.cells[0].textContent.trim() : '');
+      var providers = (ds.providers && ds.providers.length) ? ds.providers.split(',') : [];
+      window.openRoute({id:id, pattern:pattern, providers:providers});
+    }
+    else if(action === 'delete-route'){ window.deleteRoute(id); }
+    // —— Keys 页按钮（编辑/删除/恢复），从 data-pid + data-id 取值 ——
+    else if(action === 'edit-key'){ window.openKey(btn.dataset.pid, id); }
+    else if(action === 'delete-key'){ window.deleteKey(btn.dataset.pid, id); }
+    else if(action === 'recover-key'){ window.recoverKey(btn.dataset.pid, id); }
+  });
+}
+
+// ---------- 主题切换（亮色 / 暗色）----------
+window.applyTheme = function(theme){
+  document.documentElement.setAttribute('data-theme', theme);
+  var btn = $('#themeBtn');
+  if(btn) btn.textContent = (theme==='light') ? '🌙' : '☀️';
+  try { localStorage.setItem('irouter_theme', theme); } catch(e){}
+};
+
+window.toggleTheme = function(){
+  var cur = document.documentElement.getAttribute('data-theme') || 'dark';
+  window.applyTheme(cur==='light' ? 'dark' : 'light');
+};
+
+function initTheme(){
+  var saved = null;
+  try { saved = localStorage.getItem('irouter_theme'); } catch(e){}
+  // 优先级：用户保存 > 系统偏好 > 默认暗色
+  var theme = saved || (window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  window.applyTheme(theme);
+  var btn = $('#themeBtn');
+  if(btn) btn.addEventListener('click', window.toggleTheme);
+  // 系统主题变化自动跟随（仅当用户未手动设置时生效）
+  if(window.matchMedia){
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(e){
+      var s = null; try { s = localStorage.getItem('irouter_theme'); } catch(err){}
+      if(!s) window.applyTheme(e.matches ? 'light' : 'dark');
+    });
+  }
+};
+
+// ---------- 时钟 ----------
+function tickClock(){
+  var el = $('#clock');
+  if(!el) return;
+  var d = new Date();
+  var p = function(n){ return (n<10?'0':'')+n; };
+  el.textContent = d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+
+// ---------- Tab 路由 ----------
+var TITLES = {
+  dashboard:'总览', providers:'供应商', keys:'Keys', latency:'延迟',
+  usage:'用量', logs:'日志', routes:'路由规则'
+};
+window.DASHBOARD_TIMER = null;
+
+window.loadTab = function(tab){
+  tab = tab || 'providers';
+  $('#pageTitle').textContent = TITLES[tab] || tab;
+  var fn = window['render_'+tab];
+  if(typeof fn === 'function'){
+    try { fn(); } catch(err){ $('#view').innerHTML = '<div class="alert" style="display:block">渲染错误：'+esc(err.message)+'</div>'; console.error(err); }
+  } else {
+    $('#view').innerHTML = '<div class="card"><h2>'+esc(TITLES[tab]||tab)+'</h2><p class="muted">该模块尚未实现。</p></div>';
+  }
+};
+
+// ===================================================================
+//  管理首页 Dashboard：总览看板 + 使用指南
+// ===================================================================
+function dsCard(icon, label, value, sub, tone){
+  return '<div class="ds-card" data-tone="'+esc(tone||'')+'">'
+    + '<div class="ds-card-ic">'+icon+'</div>'
+    + '<div class="ds-card-body">'
+    + '<div class="ds-card-label">'+esc(label)+'</div>'
+    + '<div class="ds-card-value">'+esc(value)+'</div>'
+    + (sub?'<div class="ds-card-sub">'+esc(sub)+'</div>':'')
+    + '</div></div>';
+}
+function dsPct(n){ return Math.max(0, Math.min(100, Number(n)||0)); }
+
+window.render_dashboard = function(silent){
+  silent = !!silent;
+  var view = $('#view');
+  if(!view) return;
+  if(!silent) view.innerHTML = '<div class="ds-loading">加载看板数据中…</div>';
+
+  api('GET', '/admin/api/dashboard').then(function(d){
+    if(!d || typeof d !== 'object'){ view.innerHTML = '<div class="alert">看板数据为空，请稍后重试。</div>'; return; }
+    var c = d.counts || {}, s = d.stats || {}, st = d.storage || {};
+    var cards = '';
+    cards += dsCard('📡', '供应商', c.providers||0, '已配置的模型供应商', 'blue');
+    cards += dsCard('⚙️', '路由规则', c.routes||0, 'pattern → 供应商', 'purple');
+    cards += dsCard('🔑', 'Key 数量', c.keys||0, '可用 API Key', 'green');
+    cards += dsCard('🚀', '总请求', s.totalRequests||0, '成功率 '+(s.successRate||0)+'%', 'orange');
+
+    // 存储状态横幅
+    var banner = '';
+    if(st.mode === 'kv'){
+      banner = '<div class="ds-banner ds-banner-ok">'
+        + '<span class="dot g"></span><div><b>已持久化 · Deno KV</b>'
+        + '<small>供应商、Key、路由规则均已写入 KV，重启/重部署不会丢失。</small></div></div>';
+    } else {
+      banner = '<div class="ds-banner ds-banner-warn">'
+        + '<span class="dot r"></span><div><b>⚠ 内存模式 · 重启会丢失</b>'
+        + '<small>'+(st.warning||'请在 Deno Deploy 项目设置中启用 Deno KV。')+'</small></div>'
+        + '<button class="primary" onclick="location.hash=\'#providers\'">去配置</button></div>';
+    }
+
+    // 最近请求
+    var recent = (d.recent||[]).slice(0,8).map(function(r){
+      var tm = r.ts ? new Date(r.ts).toLocaleTimeString('zh-CN',{hour12:false}) : '-';
+      var dot = (r.status>=200&&r.status<300)?'g':((r.status>=400||r.status===0)?'r':'y');
+      return '<tr><td><span class="dot '+dot+'"></span></td>'
+        + '<td>'+esc(tm)+'</td>'
+        + '<td><b>'+esc(r.model||'-')+'</b></td>'
+        + '<td class="muted">'+esc(r.provider||'-')+'</td>'
+        + '<td><span class="tag">'+(r.status||'ERR')+'</span></td>'
+        + '<td class="muted">'+(r.latency_ms||0)+' ms</td></tr>';
+    }).join('');
+    if(!recent) recent = '<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">暂无请求记录，发送一次请求后即可在此看到调用情况。</td></tr>';
+
+    // 模型调用排行
+    var ranking = (d.modelRanking||[]).map(function(r, i){
+      var pct = dsPct((r.count / Math.max(1, (d.stats||{}).totalRequests||1)) * 100);
+      return '<div class="ds-rank-row"><span class="ds-rank-n">#'+(i+1)+'</span>'
+        + '<span class="ds-rank-name">'+esc(r.model)+'</span>'
+        + '<div class="ds-bar"><i style="width:'+pct+'%"></i></div>'
+        + '<span class="ds-rank-c">'+r.count+'</span></div>';
+    }).join('');
+    if(!ranking) ranking = '<p class="muted" style="text-align:center;padding:16px">暂无调用数据。</p>';
+
+    // 供应商健康度
+    var pvds = (d.providers||[]).map(function(p){
+      var h = p.health || {};
+      var avg = h.avg != null ? Math.round(h.avg)+'ms' : '-';
+      var rate = h.count ? Math.round((h.ok||0)/h.count*100) : 0;
+      return '<div class="ds-prov"><div class="ds-prov-head">'
+        + '<span class="dot '+(p.enabled?'g':'r')+'"></span><b>'+esc(p.name)+'</b>'
+        + '<span class="tag '+(p.builtin?'builtin':'custom')+'">'+esc(p.keys||0)+' key</span></div>'
+        + '<div class="ds-prov-meta"><span>成功率 '+rate+'%</span><span>平均 '+avg+'</span></div>'
+        + '<div class="ds-bar"><i style="width:'+dsPct(rate)+'%"></i></div></div>';
+    }).join('');
+    if(!pvds) pvds = '<p class="muted" style="text-align:center;padding:16px">还没有供应商，先去添加一家吧。</p>';
+
+    // 使用指南（首次进入自动展开，localStorage 记忆）
+    var guide = window.render_guide ? window.render_guide(true) : '';
+
+    view.innerHTML =
+      '<div class="ds">'
+      + '<div class="ds-head">'
+      + '<div><h2>irouter 总览</h2><small class="muted">版本 v'+(d.version||'')+' · 数据每 30 秒自动刷新</small></div>'
+      + '<div class="row"><button class="primary" onclick="location.hash=\'#providers\'">＋ 添加供应商</button>'
+      + '<button onclick="window.render_dashboard&&window.render_dashboard()">刷新</button>'
+      + '<button onclick="window.showGuide&&window.showGuide(true)" title="查看使用指南">❔ 帮助</button></div>'
+      + '</div>'
+      + '<div class="ds-cards">' + cards + '</div>'
+      + banner
+      + '<div class="ds-grid">'
+      + '  <div class="card ds-col-2"><div class="card-head"><h3>最近请求</h3><small class="muted">最新 8 条</small></div>'
+      + '    <div style="overflow-x:auto"><table><thead><tr><th></th><th>时间</th><th>模型</th><th>供应商</th><th>状态</th><th>耗时</th></tr></thead><tbody>'+recent+'</tbody></table></div></div>'
+      + '  <div class="card"><div class="card-head"><h3>模型调用排行</h3></div>'+ranking+'</div>'
+      + '</div>'
+      + '<div class="card"><div class="card-head"><h3>供应商健康度</h3><small class="muted">成功率 / 平均延迟</small></div>'
+      + '  <div class="ds-prov-grid">'+pvds+'</div></div>'
+      + guide
+      + '</div>';
+  }).catch(function(err){
+    if(!silent) view.innerHTML = '<div class="alert">看板加载失败：'+esc(err&&err.message||err)+'<br><button class="primary" onclick="window.render_dashboard&&window.render_dashboard()">重试</button></div>';
+  });
+};
+
+// 使用指南：6 步，首次自动弹出，localStorage 记忆
+window.showGuide = function(force){
+  var wrap = document.getElementById('guideOverlay');
+  if(!wrap){ // 若已内联渲染则复用
+    var view = $('#view');
+    if(view) { window.render_dashboard && window.render_dashboard(); }
+  }
+  // 直接以 modal 形式展示，兼容无 overlay 场景
+  var steps = [
+    { t:'① 部署完成', d:'irouter 已运行。先在右上角确认存储状态为 <b>🟢 已持久化·KV</b>；若是黄点，请到 Deno Deploy 项目设置启用 Deno KV。' },
+    { t:'② 添加供应商', d:'进入「供应商」→「＋ 添加供应商」，填写名称、标识（如 ollama）、Base URL 与协议（默认 OpenAI 兼容）。' },
+    { t:'③ 配置 Key', d:'在供应商行点「编辑」或到「Keys」页，为该供应商添加 API Key（自建供应商可不填）。' },
+    { t:'④ 设置路由规则', d:'进入「路由规则」→「＋ 添加规则」，用 pattern 匹配请求路径，选择转发的供应商列表（按顺序兜底）。' },
+    { t:'⑤ 验证转发', d:'向 <code>/v1/chat/completions</code> 发送请求（带上 <code>Authorization: Bearer &lt;PROXY_KEY&gt;</code>），看「日志/延迟」页确认命中。' },
+    { t:'⑥ 监控与告警', d:'回到本首页看总请求/成功率/模型排行；异常会在右上角提示，可在「延迟/用量」页细查。' },
   ];
-  $('#statusCards').innerHTML = cards.map(c=>
-    `<div class="stat-card"><span class="ic">${c.ic}</span><div class="label">${c.label}</div>
-     <div class="val">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
-
-  const st = d.storage || {};
-  const banner = $('#storageBanner');
-  if(st.mode==='kv' && st.writable){
-    banner.className='storage-banner';
-    banner.innerHTML='<span style="font-size:20px">🟢</span><div><b>数据已持久化（Deno KV）</b> · 重启后数据保留'+(st.warning? '<br><span class="muted" style="font-size:12px">'+esc(st.warning)+'</span>':'')+'</div>';
-  } else {
-    banner.className='storage-banner mem';
-    banner.innerHTML='<span style="font-size:20px">🟡</span><div style="flex:1"><b>⚠ 内存模式</b> · 进程重启 / 重部署后数据将丢失<div class="muted" style="font-size:12px">请到 Deno Deploy → Settings → Deno KV 启用数据库</div></div><button class="btn btn-primary btn-sm" onclick="location.reload()">我已启用，刷新</button>';
-  }
-
-  const reqs = (d.recentRequests||[]).slice(0,8);
-  $('#recentRequests').innerHTML = reqs.length ? reqs.map(r=>
-    `<div class="req-item"><span class="req-time">${esc((r.time||'').slice(11,19)||'-')}</span>
-     <span class="dot ${r.ok?'g':(r.ratelimited?'y':'r')}"></span>
-     <span class="req-model">${esc(r.model||'-')}</span>
-     <span class="req-lat">${r.latency!=null?r.latency+'ms':'-'}</span></div>`).join('')
-    : `<div class="empty-state"><div class="big">📭</div><p>暂无请求记录，转发一次请求后会出现在这里</p></div>`;
-
-  const rank = (d.modelRanking||[]).slice(0,6);
-  const maxN = rank.reduce((m,x)=>Math.max(m,x.count||0),1);
-  $('#modelRanking').innerHTML = rank.length ? rank.map(x=>
-    `<div class="bar-row"><span class="bar-label">${esc(x.model)}</span>
-     <span class="bar-track"><span class="bar-fill" style="width:${((x.count||0)/maxN*100)||2}%"></span></span>
-     <span class="bar-val">${x.count||0}</span></div>`).join('')
-    : `<div class="empty-state"><div class="big">🏆</div><p>暂无调用数据</p></div>`;
-
-  const health = d.providerHealth || [];
-  $('#providerHealth').innerHTML = health.length ? health.map(h=>{
-    const rate = h.total ? Math.round(h.success/h.total*100) : 0;
-    return `<div class="health-card"><div class="hn">${h.ok?'<span class="dot g"></span>':'<span class="dot r"></span>'}${esc(h.name)}</div>
-      <div class="ring"><span class="num">${rate}%</span><span class="muted" style="font-size:12px">成功率</span></div>
-      <div class="muted" style="font-size:12px;margin-top:6px">${h.total||0} 次 · 平均 ${h.avgLatency||0}ms</div></div>`;
-  }).join('')
-    : `<div class="empty-state"><div class="big">📡</div><p>添加供应商并转发请求后，这里会显示各供应商健康度</p>
-       <button class="btn btn-primary btn-sm" onclick="navigate('providers')">添加供应商</button></div>`;
-
-  const sys = d.system || {};
-  $('#sysVer').textContent = sys.version || '2.5.1';
-  $('#sysMode').textContent = sys.mode || 'unknown';
-  $('#sysKV').textContent = (st.mode==='kv'&&st.writable) ? '✅ Deno KV 已启用' : '⚠️ 内存模式（不持久化）';
-  $('#sysKV').style.color = (st.mode==='kv'&&st.writable) ? '#34c759' : '#f5a623';
-  $('#sysPersist').textContent = (st.mode==='kv'&&st.writable) ? '✅ 已持久化' : '❌ 重启丢失';
-  $('#dashUpdated').textContent = new Date().toLocaleTimeString();
-}
-function startDashboardAutoRefresh(){
-  if(dashboardTimer) clearInterval(dashboardTimer);
-  dashboardTimer = setInterval(()=>{ if(currentView==='dashboard' && !document.hidden) fetchDashboard(); }, 30000);
-}
-
-/* ===== ===== ===== Guide ===== ===== ===== */
-const GUIDE_STEPS = [
-  {t:'① 确认部署成功', d:'登录后台，看右上角存储状态。绿色「🟢 已持久化 · KV」= 正常；黄色「🟡 内存模式」= 需要启用 Deno KV（Deno Deploy → Settings → Deno KV）。'},
-  {t:'② 添加供应商', d:'进入「📡 供应商」页 → 点「＋ 添加供应商」→ 填名称、标识、Base URL、协议（OpenAI 兼容 / Anthropic / Gemini）、类型（内置/自建）。'},
-  {t:'③ 配置 API Key', d:'进入「🔑 API Keys」页 → 选供应商 → 「＋ 添加 Key」→ 填入 sk-xxx。支持多个 Key 自动轮换与失败剔除。'},
-  {t:'④ 设置路由规则', d:'进入「⚙️ 路由规则」页 → 「＋ 添加规则」→ 填匹配模式（如 gpt-5*，* 为兜底）、供应商顺序、兜底供应商。优先级越小越先匹配。'},
-  {t:'⑤ 验证转发', d:'用任意 OpenAI SDK，baseURL 指向本服务，请求体正常发送：', code:'POST /v1/chat/completions\nHeader: Authorization: Bearer <PROXY_KEY>\nBody: { "model":"gpt-5", "messages":[...] }'},
-  {t:'⑥ 回到首页监控', d:'回到「🏠 首页 Dashboard」查看调用排行、供应商健康度、最近请求。数据每 30 秒自动刷新。'},
-];
-function showGuide(){
-  const wrap = document.createElement('div');
-  wrap.innerHTML = $('#tpl-guide').innerHTML;
-  document.body.appendChild(wrap);
-  $('#guideSteps').innerHTML = GUIDE_STEPS.map((s,i)=>
-    `<div class="guide-step"><div class="guide-num">${i+1}</div><div class="guide-body"><h4>${esc(s.t)}</h4>
-     <p>${esc(s.d)}${s.code?`<code>${esc(s.code)}</code>`:''}</p></div></div>`).join('');
-  const close = ()=>{ wrap.remove(); if($('#guideDont').checked) localStorage.setItem('irouter_guide_dont','1'); };
-  $('#guideClose').onclick = close;
-  $('#guideBack').onclick = e => { if(e.target.id==='guideBack') close(); };
-  document.addEventListener('keydown', function kv(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown',kv);} });
-}
-function maybeShowGuide(){
-  if(!localStorage.getItem('irouter_guide_dont') || new URLSearchParams(location.search).get('guide')==='1'){
-    setTimeout(showGuide, 400);
-  }
-}
-
-/* ===== ===== ===== Providers ===== ===== ===== */
-function renderProviders(){
-  const list = PROVIDERS.slice().sort((a,b)=>(a.isCustom===b.isCustom)?0:(a.isCustom?1:-1));
-  $('#providersBody').innerHTML = list.length ? list.map(p=>`
-    <tr>
-      <td class="cell-name" style="display:flex;align-items:center;gap:9px;height:48px;padding:11px 12px;box-sizing:border-box">
-        <span class="dot ${p.enabled!==false?'g':'r'}"></span>${esc(p.name)}
-      </td>
-      <td><code>${esc(p.id)}</code></td>
-      <td>${p.enabled!==false?'<span class="dot g"></span> 正常':'<span class="dot r"></span> 停用'}</td>
-      <td><span class="tag ${p.isCustom?'tag-custom':'tag-builtin'}">${p.isCustom?'自建':'内置'}</span></td>
-      <td class="muted">${p.rpm? p.rpm+'/min' : '-'}</td>
-      <td>
-        <div class="btn-group" style="line-height:1;vertical-align:middle">
-          <button class="btn btn-sm btn-edit" data-action="edit-provider" data-id="${esc(p.id)}">编辑</button>
-          ${p.isCustom?'<button class="btn btn-sm btn-delete" data-action="delete-provider" data-id="'+esc(p.id)+'">删除</button>':''}
-        </div>
-      </td>
-    </tr>`).join('')
-    : `<tr><td colspan="6"><div class="empty-state"><div class="big">📡</div><p>还没有供应商，添加第一家开始吧</p>
-        <button class="btn btn-primary btn-sm" id="emptyAddP">＋ 添加供应商</button></div></td></tr>`;
-  if(!list.length) $('#emptyAddP').onclick = openProvider;
-  renderRoutesProviders();
-  renderKeysProviders();
-}
-function renderRoutesProviders(){
-  const sel = $('#rf-providers'); if(!sel) return;
-  const fb = $('#rf-fallback');
-  const html = PROVIDERS.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
-  sel.innerHTML = html; if(fb) fb.innerHTML = '<option value="">（无兜底）</option>'+html;
-}
-function renderKeysProviders(){
-  const sel = $('#keyProvider'); if(!sel) return;
-  const cur = sel.value || currentKeyProviderId;
-  sel.innerHTML = '<option value="">— 选择供应商 —</option>'
-    + PROVIDERS.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
-  if(PROVIDERS.find(p=>p.id===cur)){ sel.value = cur; }
-  else if(PROVIDERS.find(p=>p.isCustom)){ sel.value = PROVIDERS.find(p=>p.isCustom).id; }
-  currentKeyProviderId = sel.value || null;
-}
-function openProvider(id){
-  const wrap = document.createElement('div');
-  wrap.innerHTML = $('#tpl-provider-modal').innerHTML;
-  document.body.appendChild(wrap);
-  const p = id ? PROVIDERS.find(x=>x.id===id) : null;
-  $('#pmTitle').textContent = p ? '编辑供应商' : '添加供应商';
-  if(p){ $('#pf-name').value=p.name; $('#pf-id').value=p.id; $('#pf-id').readOnly=true;
-    $('#pf-base').value=p.baseUrl||''; $('#pf-proto').value=p.protocol||'openai';
-    $('#pf-type').value=p.isCustom?'custom':'builtin'; $('#pf-rpm').value=p.rpm||0; }
-  const close = ()=>wrap.remove();
-  $('#pmCancel').onclick = close;
-  $('#providerBack').onclick = e=>{ if(e.target.id==='providerBack') close(); };
-  $('#pmSave').onclick = ()=>saveProvider(p);
-}
-async function saveProvider(existing){
-  const name=$('#pf-name').value.trim(), id=$('#pf-id').value.trim()||name.toLowerCase().replace(/\s+/g,'-'),
-    base=$('#pf-base').value.trim(), proto=$('#pf-proto').value,
-    isCustom=$('#pf-type').value==='custom', rpm=+$('#pf-rpm').value||0;
-  if(!name){ toast('请填写名称','warn'); return; }
-  if(existing){
-    const b={...existing, name, baseUrl:base, protocol:proto, isCustom, rpm};
-    try {
-      const r = await put('/admin/api/providers/'+encodeURIComponent(existing.id), b);
-      const i = PROVIDERS.findIndex(x=>x.id===existing.id);
-      if(i>=0) PROVIDERS[i] = Object.assign({}, PROVIDERS[i], r && r.id ? r : b);
-      else PROVIDERS.push(r && r.id ? r : b);
-      renderProviders();
-      toast('供应商已更新','ok');
-      document.querySelector('.modal-back').remove();
-    } catch(e){}
-  } else {
-    try {
-      const r = await post('/admin/api/providers', {id,name,baseUrl:base,protocol:proto,isCustom,rpm,enabled:true});
-      PROVIDERS.push(r && r.id ? r : {id,name,baseUrl:base,protocol:proto,isCustom,rpm,enabled:true});
-      renderProviders();
-      renderKeysProviders();
-      toast('供应商已添加','ok');
-      document.querySelector('.modal-back').remove();
-    } catch(e){}
-  }
-}
-function deleteProvider(id){
-  if(!confirm('确定删除这家供应商？关联的 Key 也将失效。')) return;
-  del('/admin/api/providers/'+encodeURIComponent(id)).then(()=>{
-    const i = PROVIDERS.findIndex(x=>x.id===id); if(i>=0) PROVIDERS.splice(i,1);
-    renderProviders();
-    toast('已删除','ok');
-  }).catch(()=>{});
-}
-
-/* ===== ===== ===== Routes ===== ===== ===== */
-function renderRoutes(){
-  const list = ROUTES.slice().sort((a,b)=>(a.priority||100)-(b.priority||100));
-  $('#routesBody').innerHTML = list.length ? list.map(r=>`
-    <tr>
-      <td><span class="badge">${r.priority!=null?r.priority:100}</span></td>
-      <td><code>${esc(r.pattern||'*')}</code></td>
-      <td>${esc((r.providers||[]).map(pid=>{const p=providersMap()[pid];return p?p.name:pid;}).join(' → ')||'-')}</td>
-      <td>${esc(providersMap()[r.fallback]? providersMap()[r.fallback].name : '-')}</td>
-      <td>
-        <div class="btn-group" style="line-height:1;vertical-align:middle">
-          <button class="btn btn-sm btn-edit" data-action="edit-route" data-id="${esc(r.id)}">编辑</button>
-          <button class="btn btn-sm btn-delete" data-action="delete-route" data-id="${esc(r.id)}">删除</button>
-        </div>
-      </td>
-    </tr>`).join('')
-    : `<tr><td colspan="5"><div class="empty-state"><div class="big">⚙️</div><p>还没有路由规则，添加第一条开始吧</p>
-        <button class="btn btn-primary btn-sm" id="emptyAddR">＋ 添加路由规则</button></div></td></tr>`;
-  if(!list.length) $('#emptyAddR').onclick = openRoute;
-}
-function openRoute(id){
-  const wrap = document.createElement('div');
-  wrap.innerHTML = $('#tpl-route-modal').innerHTML;
-  document.body.appendChild(wrap);
-  const r = id ? ROUTES.find(x=>x.id===id) : null;
-  $('#rmTitle').textContent = r ? '编辑路由规则' : '添加路由规则';
-  renderRoutesProviders();
-  if(r){
-    $('#rf-prio').value = r.priority!=null?r.priority:100;
-    $('#rf-pattern').value = r.pattern||'';
-    const sel = $('#rf-providers');
-    [...sel.options].forEach(o=>{ if((r.providers||[]).includes(o.value)) o.selected=true; });
-    $('#rf-fallback').value = r.fallback||'';
-  }
-  const close = ()=>wrap.remove();
-  $('#rmCancel').onclick = close;
-  $('#routeBack').onclick = e=>{ if(e.target.id==='routeBack') close(); };
-  $('#rmSave').onclick = ()=>saveRoute(r);
-}
-let routeSeq = 0;
-async function saveRoute(existing){
-  const priority=+$('#rf-prio').value||100, pattern=$('#rf-pattern').value.trim()||'*',
-    providers=[...$('#rf-providers').selectedOptions].map(o=>o.value),
-    fallback=$('#rf-fallback').value;
-  if(!providers.length){ toast('至少选一个供应商','warn'); return; }
-  const b={priority, pattern, providers, fallback};
-  if(existing){
-    try {
-      const r = await put('/admin/api/routes/'+encodeURIComponent(existing.id), b);
-      const i = ROUTES.findIndex(x=>x.id===existing.id);
-      const merged = Object.assign({}, existing, r && r.id ? r : b);
-      if(i>=0) ROUTES[i] = merged; else ROUTES.push(merged);
-      renderRoutes();
-      toast('规则已更新','ok');
-      document.querySelector('.modal-back').remove();
-    } catch(e){}
-  } else {
-    try {
-      const r = await post('/admin/api/routes', Object.assign({id:'r_'+(Date.now().toString(36))+'_'+(routeSeq++)}, b));
-      ROUTES.push(r && r.id ? r : Object.assign({id:'tmp_'+Date.now()}, b));
-      renderRoutes();
-      toast('规则已添加','ok');
-      document.querySelector('.modal-back').remove();
-    } catch(e){}
-  }
-}
-function deleteRoute(id){
-  if(!confirm('确定删除这条路由规则？')) return;
-  del('/admin/api/routes/'+encodeURIComponent(id)).then(()=>{
-    const i = ROUTES.findIndex(x=>x.id===id); if(i>=0) ROUTES.splice(i,1);
-    renderRoutes();
-    toast('已删除','ok');
-  }).catch(()=>{});
-}
-
-/* ===== ===== ===== Keys ===== ===== ===== */
-async function renderKeys(){
-  renderKeysProviders();
-  const pid = currentKeyProviderId;
-  const body = $('#keysBody'); if(!body) return;
-  if(!pid){ body.innerHTML='<tr><td colspan="4"><div class="empty-state"><div class="big">🔑</div><p>请先在上方选择供应商</p></div></td></tr>'; return; }
-  const cached = (KEYS||[]).filter(k=>k.providerId===pid);
-  const renderRows = (list)=>{
-    body.innerHTML = list.length ? list.map(k=>`
-      <tr>
-        <td><code>${esc(k.key ? (k.key.slice(0,6)+'…'+k.key.slice(-4)) : '(未设置)')}</code>
-            ${k.note?` <span class="muted">— ${esc(k.note)}</span>`:''}</td>
-        <td>${k.enabled!==false?'<span class="dot g"></span> 启用':'<span class="dot r"></span> 停用'}</td>
-        <td>${k.failCount?`<span style="color:var(--err)">${k.failCount}</span>`:'<span class="muted">0</span>'}</td>
-        <td>
-          <div class="btn-group" style="line-height:1;vertical-align:middle">
-            ${k.failCount?'<button class="btn btn-sm btn-test" data-action="recover-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">恢复</button>':''}
-            <button class="btn btn-sm btn-edit" data-action="edit-key" data-pid="${esc(pid)}" data-id="${esc(k.id)}">编辑</button>
-            <button class="btn btn-sm btn-delete" data-action="delete-key" data-pid="${esc(pid)}" data-id="${esc(k.id)}">删除</button>
-          </div>
-        </td>
-      </tr>`).join('')
-      : `<tr><td colspan="4"><div class="empty-state"><div class="big">🔑</div><p>该供应商还没有 Key，添加一个吧</p>
-          <button class="btn btn-primary btn-sm" id="emptyAddK">＋ 添加 Key</button></div></td></tr>`;
-    if(!list.length) $('#emptyAddK').onclick = ()=>openKey(pid);
-  };
-  renderRows(cached);
-  try {
-    const list = await get('/admin/api/providers/'+encodeURIComponent(pid)+'/keys');
-    if(Array.isArray(list)){
-      const without = (KEYS||[]).filter(k=>k.providerId!==pid);
-      KEYS.length = 0; KEYS.push(...without, ...list.map(k=>Object.assign({providerId:pid}, k)));
-      renderRows(uniq([...KEYS]).filter(k=>k.providerId===pid));
-    }
-  } catch(e){ /* 保留本地渲染 */ }
-}
-function openKey(pid, keyId){
-  const wrap = document.createElement('div');
-  wrap.innerHTML = $('#tpl-key-modal').innerHTML;
-  document.body.appendChild(wrap);
-  const k = keyId ? KEYS.find(x=>x.id===keyId && x.providerId===pid) : null;
-  $('#kmTitle').textContent = k ? '编辑 API Key' : '添加 API Key';
-  const sel = $('#kf-provider');
-  sel.innerHTML = PROVIDERS.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
-  sel.value = pid || currentKeyProviderId; sel.disabled = true;
-  if(k){ $('#kf-key').value=k.key||''; $('#kf-note').value=k.note||''; }
-  const close = ()=>wrap.remove();
-  $('#kmCancel').onclick = close;
-  $('#keyBack').onclick = e=>{ if(e.target.id==='keyBack') close(); };
-  $('#kmSave').onclick = ()=>saveKey(pid, k);
-}
-async function saveKey(pid, existing){
-  const providerId = pid || currentKeyProviderId;
-  const key = $('#kf-key').value.trim();
-  const note = $('#kf-note').value.trim();
-  if(!providerId){ toast('请先选择供应商','warn'); return; }
-  if(!existing && !key){ toast('请填写 API Key','warn'); return; }
-  const b = existing ? {note, enabled:existing.enabled!==false} : {key, note};
-  try {
-    const r = existing
-      ? await put('/admin/api/providers/'+encodeURIComponent(providerId)+'/keys/'+encodeURIComponent(existing.id), b)
-      : await post('/admin/api/providers/'+encodeURIComponent(providerId)+'/keys', b);
-    const saved = r && r.id ? r : Object.assign({id:'tmp_'+Date.now(), providerId, key, note, enabled:true, failCount:0}, b);
-    const i = KEYS.findIndex(x=>x.id===(existing?existing.id:saved.id) && x.providerId===providerId);
-    if(i>=0) KEYS[i] = Object.assign({}, KEYS[i], saved);
-    else KEYS.push(saved);
-    renderKeys();
-    toast('Key 已保存','ok');
-    document.querySelector('.modal-back').remove();
-  } catch(e){}
-}
-function deleteKey(pid, keyId){
-  if(!confirm('确定删除这个 Key？')) return;
-  del('/admin/api/providers/'+encodeURIComponent(pid)+'/keys/'+encodeURIComponent(keyId)).then(()=>{
-    const i = KEYS.findIndex(x=>x.id===keyId && x.providerId===pid); if(i>=0) KEYS.splice(i,1);
-    renderKeys();
-    toast('已删除','ok');
-  }).catch(()=>{});
-}
-function recoverKey(pid, keyId){
-  const k = KEYS.find(x=>x.id===keyId && x.providerId===pid); if(k) k.failCount=0;
-  put('/admin/api/providers/'+encodeURIComponent(pid)+'/keys/'+encodeURIComponent(keyId), {failCount:0}).then(()=>{
-    renderKeys(); toast('已恢复','ok');
-  }).catch(()=>{});
-}
-
-/* ===== ===== ===== Models / Settings ===== ===== ===== */
-function renderModels(){
-  const models = uniq([].concat(...PROVIDERS.map(p=>p.models||[])));
-  $('#modelsList').innerHTML = models.length ? models.map(m=>`<div class="card" style="margin:0;flex:1 1 220px"><code>${esc(m)}</code></div>`).join('')
-    : `<div class="empty-state"><div class="big">🧩</div><p>暂无模型，添加供应商后自动发现</p></div>`;
-}
-function renderSettings(){
-  get('/admin/api/config').then(c=>{
-    if(c){
-      if(c.proxyKey!==undefined) $('#f-proxyKey').value=c.proxyKey||'';
-      if(c.timeout) $('#f-timeout').value=c.timeout;
-      if(c.cors) $('#f-cors').value=c.cors;
-    }
-  }).catch(()=>{});
-}
-$('#saveSettings').onclick = ()=>{
-  const b={ proxyKey:$('#f-proxyKey').value.trim(), timeout:+$('#f-timeout').value||60, cors:$('#f-cors').value.trim()||'*' };
-  put('/admin/api/config', b).then(()=>toast('设置已保存','ok')).catch(()=>{});
+  var html = '<div id="guideOverlay" class="guide-overlay"><div class="guide-card card">'
+    + '<div class="guide-head"><h2>🚀 快速上手 irouter</h2>'
+    + '<button class="x" onclick="document.getElementById(\'guideOverlay\').remove()">×</button></div>'
+    + '<ol class="guide-steps">'+ steps.map(function(s,i){ return '<li><b>'+(i+1)+'. '+s.t.replace(/^\d+\.\s*/,'')+'</b><p>'+s.d+'</p></li>'; }).join('') +'</ol>'
+    + '<div class="guide-foot"><label><input type="checkbox" id="guideDontShow"> 不再自动显示（可在「帮助」重新打开）</label>'
+    + '<button class="primary" onclick="var cb=document.getElementById(\'guideDontShow\');try{if(cb&&cb.checked)localStorage.setItem(\'irouter_guide_dont\',\'1\');}catch(e){}document.getElementById(\'guideOverlay\').remove()">开始使用</button></div>'
+    + '</div></div>';
+  var old = document.getElementById('guideOverlay'); if(old) old.remove();
+  var div = document.createElement('div');
+  div.innerHTML = html;
+  document.body.appendChild(div.firstChild);
+};
+window.render_guide = function(inline){
+  // 首次进入自动弹出
+  try { if(!localStorage.getItem('irouter_guide_dont') && !location.hash) window.showGuide(); } catch(e){}
+  return ''; // 以弹层形式展示，不占看板流
 };
 
-/* ===== ===== ===== View routing ===== ===== ===== */
-const TITLES = { dashboard:'管理首页', providers:'供应商管理', routes:'路由规则', keys:'API Keys', models:'模型管理', settings:'系统设置' };
-const RENDERERS = {
-  dashboard: ()=>{ renderDashboard(); startDashboardAutoRefresh(); },
-  providers: ()=>{ renderProviders(); renderRoutesProviders(); renderKeysProviders(); },
-  routes: ()=>renderRoutes(),
-  keys: ()=>renderKeys(),
-  models: ()=>renderModels(),
-  settings: ()=>renderSettings(),
-};
-function mount(view){
-  const tpl = $('#tpl-'+view);
-  const content = $('#content');
-  if(!content.querySelector('#view-'+view) && tpl){
-    content.insertAdjacentHTML('beforeend', tpl.innerHTML);
+// ===================================================================
+// 供应商
+// ===================================================================
+window.render_providers = function(){
+  if (!Array.isArray(window.PROVIDERS)) window.PROVIDERS = [];
+  function paint(list){
+    var builtinCount = 0, customCount = 0;
+    (list||[]).forEach(function(p){ if(p.builtin) builtinCount++; else customCount++; });
+    var html = '';
+    html += '<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:12px">';
+    html += '<div><h2 style="display:inline">供应商</h2> <span class="muted">内置 '+builtinCount+' · 自建 '+customCount+'</span></div>';
+    html += '<div class="row"><button class="primary" onclick="openProvider()">＋ 添加供应商</button> <button onclick="window.resetBuiltin()">＋ 恢复内置供应商</button></div>';
+    html += '</div>';
+    html += '<div style="overflow-x:auto"><table><thead><tr>';
+    html += '<th>状态</th><th>名称</th><th>协议</th><th>模型</th><th>Keys</th><th>健康</th><th>类型</th><th></th>';
+    html += '</tr></thead><tbody>';
+    (list||[]).forEach(function(p){
+      html += '<tr>';
+      html += '<td><span class="dot '+(p.enabled?'g':'r')+'"></span></td>';
+      html += '<td class="cell-name"><div class="cell-name-inner"><b style="font-size:13px">'+esc(p.name)+'</b><small class="muted" style="font-size:11px">'+esc(p.id)+'</small></div></td>';
+      html += '<td><span class="tag">'+esc(p.protocol||'openai')+'</span></td>';
+      html += '<td class="muted" style="font-size:12px">'+esc((p.models||[]).slice(0,2).join(', '))+(p.models&&p.models.length>2?'…':'')+'</td>';
+      html += '<td>'+(p.keys?(p.keys.filter(function(k){return k.enabled;}).length+'/'+p.keys.length):'0')+'</td>';
+      html += '<td class="muted">-</td>';
+      html += '<td><span class="tag '+(p.builtin?'builtin':'custom')+'">'+(p.builtin?'内置':'自建')+'</span></td>';
+      html += '<td class="row-actions">';
+      html += '<span class="btn-group">';
+      html += '<button type="button" class="btn btn-edit" data-action="edit" data-id="'+esc(p.id)+'">编辑</button>';
+      if(!p.builtin) html += '<button type="button" class="btn btn-delete" data-action="delete" data-id="'+esc(p.id)+'">删除</button>';
+      html += '</span></td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+    $('#view').innerHTML = html;
   }
-  $$('.view').forEach(v=>v.classList.remove('active'));
-  const el = $('#view-'+view);
-  if(el) el.classList.add('active');
-}
-function navigate(view){
-  if(!RENDERERS[view]) view='dashboard';
-  currentView = view;
-  mount(view);
-  (RENDERERS[view] || RENDERERS.dashboard)();
-  $('#pageTitle').textContent = TITLES[view] || '管理后台';
-  $$('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.view===view));
-  if(location.hash!=='#'+view) history.replaceState(null,'','#'+view);
-  if(view!=='dashboard' && dashboardTimer){ clearInterval(dashboardTimer); dashboardTimer=null; }
-}
-function initRoutes(){
-  $$('#nav a').forEach(a=>a.onclick = e=>{ e.preventDefault(); navigate(a.dataset.view); window.scrollTo(0,0); });
-  $$('.quick-btn[data-go]').forEach(b=>b.onclick=()=>navigate(b.dataset.go));
-  $('#qRefresh').onclick = ()=>{ fetchDashboard(); toast('已刷新','ok'); };
-  $('#dashRefresh').onclick = ()=>fetchDashboard();
-  $('#dashGuide').onclick = showGuide;
-  $('#helpLink').onclick = e=>{ e.preventDefault(); showGuide(); };
-  $('#logoutBtn').onclick = ()=>{ del('/admin/api/logout').then(()=>location.href='/admin/login').catch(()=>location.href='/admin/login'); };
-  document.addEventListener('click', e=>{
-    const btn = e.target.closest('[data-action]'); if(!btn) return;
-    const action = btn.dataset.action, id = btn.dataset.id, pid = btn.dataset.pid;
-    if(action==='edit-provider') openProvider(id);
-    else if(action==='delete-provider') deleteProvider(id);
-    else if(action==='edit-route') openRoute(id);
-    else if(action==='delete-route') deleteRoute(id);
-    else if(action==='edit-key') openKey(pid, id);
-    else if(action==='delete-key') deleteKey(pid, id);
-    else if(action==='recover-key') recoverKey(pid, id);
+  paint(window.PROVIDERS); // 立即用本地数据渲染，不依赖网络
+  window.api('/providers').then(function(list){
+    window.PROVIDERS = (list||[]); // 后端为准，更新缓存
+    paint(window.PROVIDERS);
+  }).catch(function(err){
+    // fetch 失败：保留本地已添加的数据，绝不空白（仅追加提示）
+    console.warn('[providers] fetch 失败，使用本地缓存：', err.message);
   });
-  $('#keyProvider').addEventListener('change', e=>{ currentKeyProviderId = e.target.value; renderKeys(); });
+};
+
+window.openProvider = function(id){
+  var isEdit = !!id;
+  window.api('/providers'+(id?'/'+encodeURIComponent(id):'')).then(function(p){
+    p = p || {id:'',name:'',protocol:'openai',baseUrl:'',models:[],enabled:true,builtin:false};
+    $('#modalBody').innerHTML = '' +
+      '<h2>'+ (isEdit?'编辑':'添加') +'供应商</h2>'+
+      '<label>ID（唯一，如 deepseek）</label><input id="f_id" value="'+esc(p.id)+'" '+(isEdit?'readonly':'')+'>'+
+      '<label>名称</label><input id="f_name" value="'+esc(p.name)+'">'+
+      '<label>协议</label><select id="f_protocol"><option value="openai">openai</option><option value="anthropic">anthropic</option><option value="google">google</option><option value="glm">glm</option></select>'+
+      '<label>Base URL</label><input id="f_base" placeholder="https://api.deepseek.com/v1" value="'+esc(p.baseUrl||'')+'">'+
+      '<label>模型（逗号分隔）</label><input id="f_models" value="'+esc((p.models||[]).join(','))+'">'+
+      '<label><input type="checkbox" id="f_enabled" '+(p.enabled?'checked':'')+'> 启用</label>'+
+      '<div class="row" style="margin-top:14px;justify-content:flex-end"><button onclick="closeModal()">取消</button> <button class="primary" onclick="saveProvider(\''+esc(id||'')+'\')">保存</button></div>';
+    $('#f_protocol').value = p.protocol || 'openai';
+    $('#modal').classList.add('on');
+  }).catch(function(err){ window.toast(err.message, 'err'); });
+};
+
+window.editProvider = function(id){ window.openProvider(id); };
+
+window.saveProvider = function(id){
+  var data = {
+    id: $('#f_id').value.trim(),
+    name: $('#f_name').value.trim(),
+    protocol: $('#f_protocol').value,
+    baseUrl: $('#f_base').value.trim(),
+    models: $('#f_models').value.split(/[,，\n]/).map(function(s){return s.trim();}).filter(Boolean),
+    enabled: $('#f_enabled').checked,
+    isCustom: true   // ★ 自建供应商标记：确保 list() 里 builtin=false，从而显示删除按钮
+  };
+  if(!data.id || !data.name){ window.toast('ID 和名称必填','err'); return; }
+  var method = id ? 'PUT' : 'POST';
+  var path = '/providers' + (id ? '/'+encodeURIComponent(id) : '');
+  window.api(path, {method:method, body:data}).then(function(saved){
+    saved = saved && saved.id ? saved : data;
+    if (!Array.isArray(window.PROVIDERS)) window.PROVIDERS = [];
+    var idx = window.PROVIDERS.findIndex(function(p){ return p.id === saved.id; });
+    if (idx >= 0) window.PROVIDERS[idx] = saved;   // 编辑：原地更新（去重）
+    else window.PROVIDERS.push(saved);               // 新建：立即进本地列表
+    window.render_providers();
+    window.toast('已保存' + storageSuffix(), 'ok', {center:true}); closeModal();
+  }).catch(function(err){ window.toast('保存失败：'+err.message,'err'); console.error(err); });
+};
+
+window.deleteProvider = function(id){
+  window.confirmDanger('确定删除供应商 '+id+' ？').then(function(ok){
+    if(!ok) return;
+    window.api('/providers/'+encodeURIComponent(id), {method:'DELETE'}).then(function(){
+      window.toast('已删除'); window.render_providers();
+    }).catch(function(err){ window.toast(err.message,'err'); });
+  });
+};
+
+// ★ 关键：显式挂到 window，且用完整的 fetch + 错误提示
+window.resetBuiltin = function(){
+  window.toast('正在恢复内置供应商…');
+  window.api('/providers/reset-builtin', {method:'POST'}).then(function(res){
+    window.toast('已恢复：'+ (res.restored||0) +' 个内置供应商');
+    window.render_providers();
+  }).catch(function(err){
+    window.toast('恢复失败：'+err.message, 'err');
+    console.error('reset-builtin error:', err);
+  });
+};
+
+// ===================================================================
+// Keys
+// ===================================================================
+window.render_keys = function(){
+  window.api('/providers').then(function(list){
+    var opts = '<option value="">（无）</option>';
+    (list||[]).forEach(function(p){ opts += '<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>'; });
+    $('#view').innerHTML = '<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="display:inline">Keys</h2><button class="primary" id="btnAddKey" type="button">＋ 添加 Key</button></div>'+
+      '<label>选择供应商</label><select id="keyProvider">'+opts+'</select>'+
+      '<div id="keyList" style="margin-top:12px"></div></div>';
+    // 选中逻辑：尊重用户上次的选择 > 首个自建 > 第一个供应商（只负责初次默认，不再强制跳回自建）
+    var remembered = window.currentKeyProviderId;
+    var custom = (list||[]).find(function(p){ return p.isCustom || !p.builtin; });
+    var first = (remembered && list.some(function(p){ return p.id===remembered; })) ? remembered
+              : (custom ? custom.id : (list&&list[0] ? list[0].id : ''));
+    var sel = document.getElementById('keyProvider');
+    if(first && sel){ sel.value = first; window.currentKeyProviderId = first; }
+    // change 用 addEventListener（不依赖 onchange 属性），切换供应商即时重新渲染
+    sel.addEventListener('change', function(){ window.currentKeyProviderId = sel.value; window.render_keys_list(); });
+    window.render_keys_list();
+    var addBtn = document.getElementById('btnAddKey');
+    if(addBtn) addBtn.addEventListener('click', function(){ window.openKey($('#keyProvider').value); });
+  }).catch(function(err){ $('#view').innerHTML = '<div class="alert" style="display:block">加载失败：'+esc(err.message)+'</div>'; });
+};
+
+window.render_keys_list = function(forcePid){
+  // pid 取值链：显式参数 > 弹窗里正在编辑的供应商 > 下拉框 > 缓存里第一个有 key 的 > 供应商列表第一个
+  var pid = (forcePid || '').trim()
+          || ($('#k_pid') && $('#k_pid').value) || ''
+          || ($('#keyProvider') && $('#keyProvider').value) || '';
+  if(!pid && window._keysCache){
+    for(var _p in window._keysCache){ if(window._keysCache[_p] && window._keysCache[_p].length){ pid = _p; break; } }
+  }
+  if(!pid && window.PROVIDERS && window.PROVIDERS.length){ pid = (window.PROVIDERS.find(function(p){ return !p.builtin; }) || window.PROVIDERS[0]).id; }
+  if(!pid){ $('#keyList').innerHTML = '<p class="muted">请先选择供应商。</p>'; return; }
+  // 下拉框同步选中（避免下次取值链错位）
+  // 关键：若 select 尚未被 render_keys 填充（加载顺序/请求失败等），此处兜底自建 option 并选中，
+  //       杜绝“sel.value=pid 在空 select 上静默失败 → pid 取值链错位 → 列表空白”
+  var sel = document.getElementById('keyProvider');
+  if(sel){
+    if(!sel.querySelector('option[value="'+pid+'"]')){
+      var opt = document.createElement('option');
+      opt.value = pid; opt.textContent = (window.PROVIDERS && window.PROVIDERS.find(function(p){ return p.id===pid; })) ? (window.PROVIDERS.find(function(p){ return p.id===pid; })).name : pid;
+      sel.appendChild(opt);
+    }
+    if(sel.value !== pid){ try{ sel.value = pid; }catch(e){} }
+  }
+  // 优先用本地缓存（保存/删除后即时可见，无需等网络）；缓存为空时再拉后端
+  var cache = window._keysCache && window._keysCache[pid];
+  if(cache && cache.length){ render_keys_rows(pid, cache); return; }
+  window.api('/providers/'+encodeURIComponent(pid)+'/keys').then(function(keys){
+    window._keysCache = window._keysCache || {};
+    window._keysCache[pid] = keys || [];
+    render_keys_rows(pid, keys || []);
+  }).catch(function(err){ $('#keyList').innerHTML = '<div class="alert" style="display:block">'+esc(err.message)+'</div>'; });
+};
+
+window.render_keys_rows = function(pid, keys){
+  // 操作按钮统一为「路由规则页同款」胶囊样式：.btn-group > .btn(.btn-edit/.btn-delete)
+  var actionsFor = function(k){
+    var btns = '<span class="btn-group">';
+    btns += '<button type="button" class="btn btn-edit" data-action="edit-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">编辑</button>';
+    btns += '<button type="button" class="btn btn-delete" data-action="delete-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">删除</button>';
+    btns += '</span>';
+    return btns;
+  };
+  var html = '<div style="overflow-x:auto"><table><thead><tr><th>状态</th><th>Key（脱敏）</th><th>权重</th><th>失败</th><th></th></tr></thead><tbody>';
+  (keys||[]).forEach(function(k){
+    html += '<tr><td><span class="dot '+(k.enabled?'g':'r')+'"></span></td><td><code>'+esc(k.key||'(未设置)')+'</code></td><td>'+esc(k.weight||1)+'</td><td>'+(k.failCount||0)+'</td>';
+    html += '<td><span class="btn-group">';
+    html += '<button type="button" class="btn btn-edit" data-action="edit-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">编辑</button>';
+    if(k.failCount>0) html += '<button type="button" class="btn btn-edit" data-action="recover-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">恢复</button>';
+    html += '<button type="button" class="btn btn-delete" data-action="delete-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">删除</button>';
+    html += '</span></td></tr>';
+  });
+  if(!keys || !keys.length){
+    html += '<tr><td colspan="5" class="muted">该供应商还没有 Key，点击右上「＋ 添加 Key」创建一个。</td></tr>';
+  }
+  html += '</tbody></table></div>';
+  html += '<button class="primary" style="margin-top:10px" id="btnAddKeyBottom" type="button">＋ 添加 Key</button>';
+  $('#keyList').innerHTML = html;
+  var b2 = document.getElementById('btnAddKeyBottom');
+  if(b2) b2.addEventListener('click', function(){ window.openKey($('#keyProvider').value); });
+};
+
+window.openKey = function(pid, keyId){
+  var k = keyId ? null : {key:'',weight:1,enabled:true};
+  var resolvedPid = (pid || $('#keyProvider').value || '').trim();   // ← 加固：先取下拉框当前值
+  $('#modalBody').innerHTML = '' +
+    '<h2>'+(keyId?'编辑':'添加')+' Key</h2>'+
+    '<label>供应商</label><input id="k_pid" value="'+esc(resolvedPid)+'" readonly>'+
+    '<label>Key</label><input id="k_key" placeholder="sk-..." value="'+esc((k&&k.key)||'')+'">'+
+    '<label>权重</label><input id="k_weight" type="number" min="1" value="'+esc((k&&k.weight)||1)+'">'+
+    '<label><input type="checkbox" id="k_enabled" '+(k&&k.enabled?'checked':'')+'> 启用</label>'+
+    '<div class="row" style="margin-top:14px;justify-content:flex-end"><button onclick="closeModal()">取消</button> <button class="primary" onclick="saveKey(\''+esc(resolvedPid)+'\',\''+esc(keyId||'')+'\')">保存</button></div>';
+  $('#modal').classList.add('on');
+};
+
+// 本地缓存：保存/测试/删除后立即更新，避免依赖整列重拉
+window._keysCache = window._keysCache || {};
+
+window.saveKey = function(pid, keyId){
+  pid = (pid || $('#k_pid').value || '').trim();
+  if(!pid){ window.toast('请先选择供应商','err'); return; }          // ← 明确提示，不再发空请求
+  var keyVal = ($('#k_key').value||'').trim();
+  if(!keyVal){ window.toast('请输入 Key','err'); return; }
+  var body = {key:keyVal, weight:parseInt($('#k_weight').value)||1, enabled:$('#k_enabled').checked};
+  var method, path;
+  if(keyId){
+    method = 'PUT'; path = '/providers/'+encodeURIComponent(pid)+'/keys/'+encodeURIComponent(keyId);
+  }else{
+    method = 'POST'; path = '/providers/'+encodeURIComponent(pid)+'/keys';
+  }
+  window.api(path, {method:method, body:body}).then(function(res){
+    window.toast('已保存' + storageSuffix(), 'ok', {center:true}); closeModal();
+    // 关键闭环：把后端返回的 key 直接写入本地缓存并渲染，不再依赖整列重拉（断掉 404 链路）
+    var saved = (res && res.id) ? res : { id: keyId || ('k_'+Date.now().toString(36)), key: keyVal, weight: body.weight, enabled: body.enabled, failCount: 0 };
+    window._keysCache = window._keysCache || {};
+    var list = window._keysCache[pid] = window._keysCache[pid] || [];
+    var idx = list.findIndex(function(x){ return x.id === saved.id; });
+    if(idx >= 0) list[idx] = Object.assign({}, list[idx], saved); else list.push(saved);
+    window.render_keys_list(pid);                       // ← 显式传 pid，锁定刚保存的供应商，立即显示
+  }).catch(function(err){ window.toast((err&&err.message)||'保存失败','err'); });
+};
+
+window.testKey = function(pid, keyId){
+  window.api('/providers/'+encodeURIComponent(pid)+'/keys/'+encodeURIComponent(keyId)+'/test', {method:'POST'}).then(function(r){
+    window.toast(r.ok?'✓ '+ (r.latency||0)+'ms':'✗ 失败', r.ok?'':'err'); window.render_keys_list();
+  }).catch(function(err){ window.toast(err.message,'err'); });
+};
+
+window.recoverKey = function(pid, keyId){
+  window.api('/providers/'+encodeURIComponent(pid)+'/keys/'+encodeURIComponent(keyId)+'/recover', {method:'POST'}).then(function(){ window.toast('已恢复'); window.render_keys_list(); }).catch(function(err){ window.toast(err.message,'err'); });
+};
+
+window.deleteKey = function(pid, keyId){
+  window.confirmDanger('确定删除该 Key？').then(function(ok){
+    if(!ok) return;
+    window.api('/providers/'+encodeURIComponent(pid)+'/keys/'+encodeURIComponent(keyId), {method:'DELETE'}).then(function(){ window.toast('已删除'); window.render_keys_list(); }).catch(function(err){ window.toast(err.message,'err'); });
+  });
+};
+
+// ===================================================================
+// 延迟 / 用量 / 日志 / 路由规则（占位 + 基础展示）
+// ===================================================================
+window.render_latency = function(){
+  window.api('/stats/latency').then(function(d){
+    var rows = '';
+    var data = (d&&d.providers)||{};
+    Object.keys(data).forEach(function(pid){
+      var s = data[pid]||{};
+      rows += '<tr><td>'+esc(pid)+'</td><td>'+(s.count||0)+'</td><td>'+(s.p50||0)+'</td><td>'+(s.p95||0)+'</td><td>'+(s.avg||0)+'</td></tr>';
+    });
+    $('#view').innerHTML = '<div class="card"><h2>延迟统计（P50 / P95，单位 ms）</h2>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>供应商</th><th>样本</th><th>P50</th><th>P95</th><th>平均</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" class="muted">暂无数据，发几条请求后会自动统计。</td></tr>')+'</tbody></table></div></div>';
+  }).catch(function(err){ $('#view').innerHTML = '<div class="alert" style="display:block">'+esc(err.message)+'</div>'; });
+};
+
+window.render_usage = function(){
+  window.api('/stats/usage').then(function(d){
+    var rows = '';
+    var data = (d&&d.byProvider)||{};
+    Object.keys(data).forEach(function(pid){
+      var u = data[pid]||{};
+      rows += '<tr><td>'+esc(pid)+'</td><td>'+(u.input||0)+'</td><td>'+(u.output||0)+'</td><td>'+(u.total||0)+'</td></tr>';
+    });
+    $('#view').innerHTML = '<div class="card"><h2>Token 用量（今日）</h2>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>供应商</th><th>Input</th><th>Output</th><th>合计</th></tr></thead><tbody>'+(rows||'<tr><td colspan="4" class="muted">暂无数据。</td></tr>')+'</tbody></table></div></div>';
+  }).catch(function(err){ $('#view').innerHTML = '<div class="alert" style="display:block">'+esc(err.message)+'</div>'; });
+};
+
+window.render_logs = function(){
+  window.api('/logs?limit=100').then(function(d){
+    var rows = '';
+    (d&&d.logs||[]).forEach(function(l){
+      rows += '<tr><td>'+esc(l.time||'')+'</td><td>'+esc(l.method||'')+'</td><td>'+esc(l.model||'')+'</td><td>'+esc(l.provider||'')+'</td><td>'+(l.status||'')+'</td><td>'+(l.latency||0)+'ms</td></tr>';
+    });
+    $('#view').innerHTML = '<div class="card"><h2>最近请求日志</h2>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>时间</th><th>方法</th><th>模型</th><th>供应商</th><th>状态</th><th>延迟</th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" class="muted">暂无请求。</td></tr>')+'</tbody></table></div></div>';
+  }).catch(function(err){ $('#view').innerHTML = '<div class="alert" style="display:block">'+esc(err.message)+'</div>'; });
+};
+
+// 路由规则以【本地数组为唯一数据源】：先即时渲染 → 再 fetch 同步 → fetch 失败也保留本地，绝不空白
+window.render_routes = function(){
+  if (!Array.isArray(window.ROUTES)) window.ROUTES = [];
+  function paint(){
+    var rules = window.ROUTES;
+    var rows = '';
+    rules.forEach(function(r){
+      var rid = r.id||('tmp_'+r.pattern);
+      rows += '<tr data-rid="'+esc(rid)+'" data-pattern="'+esc(r.pattern||'')+'" data-providers="'+esc((r.providers||[]).join(','))+'"><td>'+esc(r.pattern||'')+'</td><td>'+esc((r.providers||[]).join(' → '))+'</td>'+
+        '<td class="row-actions"><span class="btn-group">'+
+        '<button class="btn btn-edit" type="button" data-action="edit-route" data-id="'+esc(rid)+'">编辑</button>'+
+        '<button class="btn btn-delete" type="button" data-action="delete-route" data-id="'+esc(rid)+'">删除</button>'+
+        '</span></td></tr>';
+    });
+    $('#view').innerHTML = '<div class="card"><h2>路由规则</h2>'+
+      '<p class="muted">按模型名匹配，优先走列表靠前的供应商，全部不可用时自动 fallback。</p>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>匹配（支持 * 通配）</th><th>供应商优先级</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="3" class="muted">暂无自定义规则，走默认轮询。</td></tr>')+'</tbody></table></div>'+
+      '<div class="row" style="margin-top:12px"><input id="r_pattern" placeholder="*gpt*, deepseek-chat" style="max-width:240px"><input id="r_providers" placeholder="deepseek, openrouter" style="max-width:280px"><button class="primary" onclick="openRoute()">＋ 添加规则</button></div></div>';
+  }
+  paint(); // 立即用本地数据渲染，不依赖网络
+  window.api('/routes').then(function(d){
+    var rules = (d&&d.rules)||[];
+    // 后端为准合并：保留前端刚新建（id 以 tmp_ 开头）且尚未被后端确认的项
+    var confirmedIds = {};
+    rules.forEach(function(r){ if(r&&r.id) confirmedIds[r.id]=1; });
+    var localTemp = window.ROUTES.filter(function(r){
+      if(String(r.id||'').indexOf('tmp_')!==0) return false; // 非临时项由后端 rules 覆盖
+      // 同 pattern 的临时项若已被后端持久化，则剔除（用 pattern+providers 匹配）
+      return !rules.some(function(c){ return c.pattern===r.pattern && c.providers&&r.providers && c.providers.join(',')===r.providers.join(','); });
+    });
+    window.ROUTES = rules.concat(localTemp);
+    paint();
+  }).catch(function(){ /* fetch 失败：保留本地数据，不空白 */ });
+};
+
+// 打开「添加 / 编辑」路由规则弹窗（编辑时传规则对象）
+window.openRoute = function(r){
+  r = r || null;
+  var provs = (r&&r.providers)||[];
+  // 拉供应商列表填下拉
+  window.api('/providers').then(function(list){
+    var opts = (list||[]).map(function(p){ return '<option value="'+esc(p.id)+'" '+(provs.includes(p.id)?'selected':'')+'>'+esc(p.name)+'</option>'; }).join('');
+    $('#modalBody').innerHTML = ''+
+      '<h2>'+(r?'编辑':'添加')+' 路由规则</h2>'+
+      '<label>匹配模式（支持 * 通配，如 *gpt*）</label>'+
+      '<input id="rt_pattern" value="'+esc((r&&r.pattern)||'')+'">'+
+      '<label>供应商优先级（按先后顺序，可多选）</label>'+
+      '<select id="rt_providers" multiple size="6">'+opts+'</select>'+
+      '<p class="muted" style="font-size:12px">提示：按住 Ctrl / ⌘ 多选，靠前的优先。</p>'+
+      '<div class="row" style="margin-top:14px;justify-content:flex-end"><button onclick="closeModal()">取消</button> '+
+      '<button class="primary" onclick="saveRoute(\''+esc((r&&r.id)||'')+'\')">保存</button></div>';
+    $('#modal').classList.add('on');
+  }).catch(function(err){ window.toast(err.message,'err'); });
+};
+
+window.saveRoute = function(id){
+  var pat = ($('#rt_pattern').value||'').trim();
+  var sel = $('#rt_providers');
+  var provs = [];
+  if(sel && sel.selectedOptions){ for(var i=0;i<sel.selectedOptions.length;i++) provs.push(sel.selectedOptions[i].value); }
+  if(!pat || !provs.length){ window.toast('请填写匹配模式并至少选一个供应商','err'); return; }
+  var body = {pattern:pat, providers:provs};
+  var method = id ? 'PUT' : 'POST';
+  var path = id ? '/routes/'+encodeURIComponent(id) : '/routes';
+  window.api(path, {method:method, body:body}).then(function(saved){
+    saved = saved && saved.id ? saved : { id:(id||('tmp_'+Date.now().toString(36))), pattern:pat, providers:provs };
+    if (!Array.isArray(window.ROUTES)) window.ROUTES = [];
+    // 匹配策略：优先精确 id，其次本页新建的 tmp_ 临时项（点保存时可能已乐观插入）→ 合并去重，避免重复
+    var idx = window.ROUTES.findIndex(function(r){ return r.id === saved.id || (String(r.id||'').indexOf('tmp_')===0 && !saved.__committed); });
+    if (idx >= 0) window.ROUTES[idx] = saved;      // 已存在（含 tmp_ 临时项）→ 替换为真实项
+    else window.ROUTES.push(saved);                  // 新建：立即进本地列表
+    window.render_routes();                          // 即时重渲染
+    window.toast((id?'已更新':'已添加') + storageSuffix()); closeModal();
+  }).catch(function(err){ window.toast(err.message,'err'); });
+};
+
+window.addRoute = function(){ window.openRoute(); };  // 兼容：按钮点击走弹窗
+
+window.deleteRoute = function(id){
+  window.api('/routes/'+encodeURIComponent(id), {method:'DELETE'}).then(function(){ window.toast('已删除'); window.render_routes(); }).catch(function(err){ window.toast(err.message,'err'); });
+};
+
+// ===================================================================
+//  后台登录 / Session / 改密
+// ===================================================================
+window.fetchWithAuth = function(url, opts){
+  opts = opts || {};
+  return fetch(url, opts).then(function(r){
+    if(r.status === 401){
+      window.location.href = '/admin?login';
+      throw new Error('未登录');
+    }
+    return r;
+  });
+};
+
+// 所有后台 API 请求走 fetchWithAuth（401 自动跳登录页）
+window.api = function(path, opts){
+  opts = opts || {};
+  return window.fetchWithAuth('/admin/api' + path, {
+    method: opts.method || 'GET',
+    headers: opts.body ? {'Content-Type':'application/json'} : {},
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  }).then(function(r){
+    if(!r.ok) return r.json().then(function(e){ throw new Error(e.error || ('HTTP '+r.status)); }, function(){ throw new Error('HTTP '+r.status); });
+    return r.json();
+  });
+};
+
+// ---------- 登录 ----------
+function bindLogin(){
+  var form = $('#login-form');
+  if(!form) return;
+  var btn = $('#login_btn');
+  form.addEventListener('submit', function(e){ e.preventDefault(); doLogin(); });
+  btn && btn.addEventListener('click', doLogin);
+}
+function doLogin(){
+  var user = ($('#login_user').value||'').trim();
+  var pass = $('#login_pass').value || '';
+  var err = $('#login_err');
+  var btn = $('#login_btn');
+  if(!user || !pass){ err.textContent = '请输入用户名和密码'; err.style.display = 'block'; return; }
+  err.style.display = 'none';
+  btn.disabled = true; btn.textContent = '登录中…';
+  fetch('/admin/api/auth/login', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({username: user, password: pass})
+  }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+    .then(function(res){
+      if(res.ok && res.d && res.d.ok){
+        window.toast('登录成功');
+        $('#login-page').style.display = 'none';
+        bootApp();
+      } else {
+        err.textContent = (res.d && res.d.error) || '登录失败';
+        err.style.display = 'block';
+      }
+    }).catch(function(e){
+      err.textContent = '网络错误：' + (e&&e.message||e);
+      err.style.display = 'block';
+    }).finally(function(){
+      btn.disabled = false; btn.textContent = '登 录';
+    });
 }
 
-/* ===== ===== ===== Init ===== ===== ===== */
-async function init(){
-  const v = (window.VERSION)||'2.5.1';
-  const verEl = $('#ver'); if(verEl) verEl.textContent = v;
-  initRoutes();
-  await checkStorage();
-  // 拉取初始数据（先本地，再同步）
-  try { const ps = await get('/admin/api/providers'); if(Array.isArray(ps)){ PROVIDERS.length=0; PROVIDERS.push(...ps); } } catch(e){}
-  try { const rs = await get('/admin/api/routes'); if(Array.isArray(rs)){ ROUTES.length=0; ROUTES.push(...rs); } } catch(e){}
-  try { const cfg = await get('/admin/api/config'); if(cfg && cfg.providers){ PROVIDERS.length=0; PROVIDERS.push(...cfg.providers); } } catch(e){}
-  const hash = (location.hash||'#dashboard').slice(1);
-  navigate(/^[a-z]+$/.test(hash) ? hash : 'dashboard');
-  renderProviders();
-  renderRoutes();
-  maybeShowGuide();
+// ---------- 登出 ----------
+window.logout = function(){
+  fetch('/admin/api/auth/logout', {method:'POST'}).finally(function(){
+    window.location.href = '/admin?login';
+  });
+};
+
+// ---------- 改密 ----------
+window.openChangePass = function(){ var m = $('#changePassModal'); if(m) m.classList.add('on'); };
+window.closeChangePass = function(){ var m = $('#changePassModal'); if(m) m.classList.remove('on'); };
+window.submitChangePass = function(){
+  var oldP = $('#cp_old').value || '';
+  var newP = $('#cp_new').value || '';
+  var err = $('#cp_err');
+  if(!oldP || !newP){ err.textContent = '请填写完整'; err.style.display = 'block'; return; }
+  if(newP.length < 6){ err.textContent = '新密码至少 6 位'; err.style.display = 'block'; return; }
+  err.style.display = 'none';
+  window.api('/auth/change-pass', {method:'POST', body:{oldPass: oldP, newPass: newP}})
+    .then(function(d){
+      window.toast((d&&d.message)||'密码已更新，请重新登录');
+      window.closeChangePass();
+      setTimeout(window.logout, 1200);
+    }).catch(function(e){ err.textContent = e.message; err.style.display = 'block'; });
+};
+
+// ---------- 入口：先校验登录态 ----------
+// ---------- 顶栏存储状态指示器 ----------
+// 每 15s 轮询 /admin/api/storage/status：
+//   mode='kv'     → 绿点 "已持久化 · KV"（供应商/Key/路由 重启不丢）
+//   mode='memory' → 黄点 "⚠ 内存模式·重启会丢失"（明确告知，不再静默"玩消失"）
+// 切换 Tab / 登录后都会立即刷新一次。
+window.startStorageWatch = function(){
+  var el = document.getElementById('storageStatus');
+  if (!el) return;
+  var txt = el.querySelector('.txt');
+  function apply(d){
+    if (!d) return;
+    el.classList.remove('ok','warn');
+    if (d.mode === 'kv' && d.writable) {
+      el.classList.add('ok');
+      txt.textContent = '已持久化 · KV';
+      el.title = 'Deno KV 已启用，添加的供应商/Key/路由规则重启后保留';
+    } else {
+      el.classList.add('warn');
+      txt.textContent = '⚠ 内存模式';
+      el.title = d.warning || '当前为内存模式，重启后数据将丢失';
+    }
+  }
+  window.fetchStorageStatus = function(){
+    fetch('/admin/api/storage/status', {headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.json(); })
+      .then(apply)
+      .catch(function(){ /* 保持上一次状态，不闪烁 */ });
+  };
+  window.fetchStorageStatus();
+  setInterval(window.fetchStorageStatus, 15000);
+};
+
+function initAuth(){
+  var loginPage = $('#login-page');
+  if(!loginPage) { bootApp(); return; }
+  fetch('/admin/api/auth/me', {headers: {}})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.loggedIn){
+        loginPage.style.display = 'none';
+        bootApp();
+      } else {
+        loginPage.style.display = 'flex';
+      }
+    }).catch(function(){
+      // 即使 /auth/me 失败（例如首次部署后端已设 cookie 保护），也显示登录页让用户输入
+      if(loginPage) loginPage.style.display = 'flex';
+    });
 }
-init();
+
+// 把原 boot 改名为 bootApp，仅在校验通过后调用一次
+window.bootApp = function(){
+  if(window.__booted) return;
+  window.__booted = true;
+  initTheme();
+  initBurger();
+  initNav();
+  initTableActions();
+  startStorageWatch();   // 顶栏存储状态指示器（持久化/KV可用 or 内存模式告警）
+  tickClock();
+  setInterval(tickClock, 30000);
+  var hash = (location.hash||'').replace('#','');
+  var tab = ['dashboard','providers','keys','latency','usage','logs','routes'].indexOf(hash) >= 0 ? hash : 'dashboard';
+  window.loadTab(tab);
+  // Dashboard 自动刷新（30s），切走时停止
+  if (window.DASHBOARD_TIMER) clearInterval(window.DASHBOARD_TIMER);
+  window.DASHBOARD_TIMER = setInterval(function(){ if ((location.hash||'') === '#dashboard') window.render_dashboard && window.render_dashboard(true); }, 30000);
+};
+
+// 登录页事件必须在启动后台之前就绑定：否则首次加载（未登录）时
+// 登录按钮没有 click/submit 监听，点登录会毫无反应。
+bindLogin();
+
+// DOM 就绪后先做认证，再决定是否启动后台
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAuth);
+} else {
+  initAuth();
+}
 </script>
 </body>
 </html>
