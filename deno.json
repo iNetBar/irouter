@@ -1,13 +1,12 @@
 {
+  "name": "irouter",
+  "version": "2.4.1",
+  "exports": "./main.ts",
   "imports": {
-    "hono": "jsr:@hono/hono@4.13.7"
-  },
-  "compilerOptions": {
-    "jsx": "preserve",
-    "lib": ["deno.core", "deno.web"]
+    "hono": "npm:hono@4.13.7"
   },
   "tasks": {
-    "dev": "deno run --allow-net --allow-env --allow-read --unstable-kv main.ts",
-    "start": "deno run --allow-net --allow-env --allow-read --unstable-kv main.ts"
+    "start": "deno run --allow-net --allow-env --unstable-kv main.ts",
+    "dev": "deno run --allow-net --allow-env --unstable-kv --watch main.ts"
   }
 }
