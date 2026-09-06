@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.4.9";
+const VERSION = "2.5.0";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -862,6 +862,48 @@ app.get("/admin/api/storage/status", guarded(async (c) => {
     warning: writable ? null : "当前为内存模式，重启/重部署后添加的供应商、Key、路由规则将全部丢失。请在 Deno Deploy 项目中启用 Deno KV 持久化。",
   });
 }));
+
+// =====================================================================
+//  Dashboard 聚合接口：管理首页一次性拿全所有看板数据
+// =====================================================================
+app.get("/admin/api/dashboard", guarded(async (c) => {
+  await CONFIG.ready; await ROUTES.ready;
+  const kv = await getKv();
+  // 存储可写性探测
+  let writable = false;
+  if (kv) { try { await kv.set(["_probe"], safeJson({ t: Date.now() })); await kv.delete(["_probe"]); writable = true; } catch (e) { /* ignore */ } }
+  // 最近请求（取最近 12 条）
+  const recent = REQLOG.query({ limit: 12 }).map((e: any) => ({
+    ts: e.ts, model: e.model, provider: e.provider, status: e.status, latency_ms: e.latency_ms || e.latency,
+  }));
+  // 模型调用排行
+  const modelCalls: Record<string, number> = {};
+  (REQLOG as any).entries.forEach((e: any) => { if (e.model) modelCalls[e.model] = (modelCalls[e.model] || 0) + 1; });
+  const modelRanking = Object.entries(modelCalls).sort((a: any, b: any) => b[1] - a[1]).slice(0, 8).map(([model, count]) => ({ model, count }));
+  // 供应商健康度（基于 LatencyStats）
+  const providerHealth = (LATENCY as any).allByProvider ? (LATENCY as any).allByProvider() : {};
+  const providers = CONFIG.list();
+  const totalRequests = (REQLOG as any).entries.length;
+  const successCount = (REQLOG as any).entries.filter((e: any) => e.status && e.status >= 200 && e.status < 300).length;
+  return c.json({
+    version: VERSION,
+    generatedAt: Date.now(),
+    storage: { mode: writable ? "kv" : "memory", writable, warning: writable ? null : "当前为内存模式，重启后数据会丢失，请在 Deno Deploy 启用 Deno KV。" },
+    counts: {
+      providers: providers.length,
+      routes: ROUTES.rules.length,
+      keys: providers.reduce((a: number, p: any) => a + (p.keys ? p.keys.length : 0), 0),
+    },
+    stats: { totalRequests, successCount, successRate: totalRequests ? Math.round(successCount / totalRequests * 100) : 0, avgLatency: (LATENCY as any).summary ? (LATENCY as any).summary().avg || 0 : 0 },
+    recent,
+    modelRanking,
+    providers: providers.map((p: any) => ({
+      id: p.id, name: p.name, builtin: !!p.builtin, enabled: p.enabled !== false,
+      keys: (p.keys || []).length, health: providerHealth[p.id] || null,
+    })),
+  });
+}));
+
 app.post("/admin/api/health/check", guarded(async (c) => { await CONFIG.ready; const data = await healthCheckAll(); return c.json({ ok: true, data }); }));
 // 告警
 app.get("/admin/api/alerts", (c) => c.json(WEBHOOK.alerts.slice(0, 50)));

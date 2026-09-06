@@ -291,6 +291,58 @@ input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);trans
   .header .clock{display:none}
   table .btn{height:34px;min-width:50px;padding:0 11px}
 }
+
+/* ================== Dashboard ================== */
+.ds{display:flex;flex-direction:column;gap:16px}
+.ds-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.ds-head h2{font-size:20px}
+.ds-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media(max-width:900px){.ds-cards{grid-template-columns:repeat(2,1fr)}}
+.ds-card{display:flex;align-items:center;gap:14px;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;transition:transform .15s,box-shadow .15s}
+.ds-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.ds-card-ic{font-size:26px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:12px;background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;flex-shrink:0}
+.ds-card[data-tone="green"] .ds-card-ic{background:linear-gradient(135deg,#00b894,#55efc4)}
+.ds-card[data-tone="orange"] .ds-card-ic{background:linear-gradient(135deg,#e17055,#fab1a0)}
+.ds-card[data-tone="purple"] .ds-card-ic{background:linear-gradient(135deg,#6c5ce7,#a29bfe)}
+.ds-card[data-tone="blue"] .ds-card-ic{background:linear-gradient(135deg,#0984e3,#74b9ff)}
+.ds-card-body{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ds-card-label{font-size:12px;color:var(--muted);white-space:nowrap}
+.ds-card-value{font-size:24px;font-weight:700;line-height:1.1}
+.ds-card-sub{font-size:11px;color:var(--muted)}
+.ds-banner{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid var(--line)}
+.ds-banner-ok{background:rgba(0,184,148,.1);border-color:rgba(0,184,148,.4)}
+.ds-banner-warn{background:rgba(225,112,85,.1);border-color:rgba(225,112,85,.4)}
+.ds-banner>div{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.ds-banner b{font-size:13px}
+.ds-banner small{font-size:11px;color:var(--muted)}
+.ds-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+@media(max-width:900px){.ds-grid{grid-template-columns:1fr}}
+.ds-col-2{grid-column:span 1}
+.card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.card-head h3{font-size:14px}
+.ds-loading,.ds-empty{padding:32px;text-align:center;color:var(--muted)}
+.ds-rank-row{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px}
+.ds-rank-n{color:var(--muted);width:22px}
+.ds-rank-name{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-bar{flex:2;height:8px;background:var(--line);border-radius:4px;overflow:hidden;min-width:60px}
+.ds-bar>i{display:block;height:100%;background:linear-gradient(90deg,#6c5ce7,#a29bfe);border-radius:4px}
+.ds-rank-c{width:40px;text-align:right;color:var(--muted)}
+.ds-prov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.ds-prov{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:10px}
+.ds-prov-head{display:flex;align-items:center;gap:8px;font-size:13px}
+.ds-prov-head b{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-prov-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.ds-bar{height:6px}
+/* 使用指南 */
+.guide-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px}
+.guide-card{max-width:620px;width:100%;max-height:88vh;overflow:auto}
+.guide-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.guide-steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px}
+.guide-steps li{padding:10px 12px;border-left:3px solid #6c5ce7;background:rgba(108,92,231,.06);border-radius:0 8px 8px 0)}
+.guide-steps b{font-size:13px}
+.guide-steps p{font-size:12px;color:var(--muted);margin:4px 0 0}
+.guide-steps code{background:var(--line);padding:1px 5px;border-radius:4px;font-size:11px}
+.guide-foot{display:flex;justify-content:space-between;align-items:center;margin-top:16px;font-size:12px}
 @media(max-width:480px){
   .card{padding:12px}
   .brand small{display:none}
@@ -340,7 +392,8 @@ input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);trans
 <aside class="side" id="side">
  <div class="brand">⚡ irouter<small>LLM 聚合网关 v{{VERSION}}</small></div>
  <nav class="nav" id="nav">
-  <a href="#providers" data-tab="providers" class="active"><span class="ic">📡</span><span>供应商</span></a>
+  <a href="#dashboard" data-tab="dashboard" class="active"><span class="ic">🏠</span><span>首页</span></a>
+  <a href="#providers" data-tab="providers"><span class="ic">📡</span><span>供应商</span></a>
   <a href="#keys" data-tab="keys"><span class="ic">🔑</span><span>Keys</span></a>
   <a href="#latency" data-tab="latency"><span class="ic">📊</span><span>延迟</span></a>
   <a href="#usage" data-tab="usage"><span class="ic">💰</span><span>用量</span></a>
@@ -539,9 +592,10 @@ function tickClock(){
 
 // ---------- Tab 路由 ----------
 var TITLES = {
-  providers:'供应商', keys:'Keys', latency:'延迟',
+  dashboard:'总览', providers:'供应商', keys:'Keys', latency:'延迟',
   usage:'用量', logs:'日志', routes:'路由规则'
 };
+window.DASHBOARD_TIMER = null;
 
 window.loadTab = function(tab){
   tab = tab || 'providers';
@@ -552,6 +606,145 @@ window.loadTab = function(tab){
   } else {
     $('#view').innerHTML = '<div class="card"><h2>'+esc(TITLES[tab]||tab)+'</h2><p class="muted">该模块尚未实现。</p></div>';
   }
+};
+
+// ===================================================================
+//  管理首页 Dashboard：总览看板 + 使用指南
+// ===================================================================
+function dsCard(icon, label, value, sub, tone){
+  return '<div class="ds-card" data-tone="'+esc(tone||'')+'">'
+    + '<div class="ds-card-ic">'+icon+'</div>'
+    + '<div class="ds-card-body">'
+    + '<div class="ds-card-label">'+esc(label)+'</div>'
+    + '<div class="ds-card-value">'+esc(value)+'</div>'
+    + (sub?'<div class="ds-card-sub">'+esc(sub)+'</div>':'')
+    + '</div></div>';
+}
+function dsPct(n){ return Math.max(0, Math.min(100, Number(n)||0)); }
+
+window.render_dashboard = function(silent){
+  silent = !!silent;
+  var view = $('#view');
+  if(!view) return;
+  if(!silent) view.innerHTML = '<div class="ds-loading">加载看板数据中…</div>';
+
+  api('GET', '/admin/api/dashboard').then(function(d){
+    if(!d || typeof d !== 'object'){ view.innerHTML = '<div class="alert">看板数据为空，请稍后重试。</div>'; return; }
+    var c = d.counts || {}, s = d.stats || {}, st = d.storage || {};
+    var cards = '';
+    cards += dsCard('📡', '供应商', c.providers||0, '已配置的模型供应商', 'blue');
+    cards += dsCard('⚙️', '路由规则', c.routes||0, 'pattern → 供应商', 'purple');
+    cards += dsCard('🔑', 'Key 数量', c.keys||0, '可用 API Key', 'green');
+    cards += dsCard('🚀', '总请求', s.totalRequests||0, '成功率 '+(s.successRate||0)+'%', 'orange');
+
+    // 存储状态横幅
+    var banner = '';
+    if(st.mode === 'kv'){
+      banner = '<div class="ds-banner ds-banner-ok">'
+        + '<span class="dot g"></span><div><b>已持久化 · Deno KV</b>'
+        + '<small>供应商、Key、路由规则均已写入 KV，重启/重部署不会丢失。</small></div></div>';
+    } else {
+      banner = '<div class="ds-banner ds-banner-warn">'
+        + '<span class="dot r"></span><div><b>⚠ 内存模式 · 重启会丢失</b>'
+        + '<small>'+(st.warning||'请在 Deno Deploy 项目设置中启用 Deno KV。')+'</small></div>'
+        + '<button class="primary" onclick="location.hash=\'#providers\'">去配置</button></div>';
+    }
+
+    // 最近请求
+    var recent = (d.recent||[]).slice(0,8).map(function(r){
+      var tm = r.ts ? new Date(r.ts).toLocaleTimeString('zh-CN',{hour12:false}) : '-';
+      var dot = (r.status>=200&&r.status<300)?'g':((r.status>=400||r.status===0)?'r':'y');
+      return '<tr><td><span class="dot '+dot+'"></span></td>'
+        + '<td>'+esc(tm)+'</td>'
+        + '<td><b>'+esc(r.model||'-')+'</b></td>'
+        + '<td class="muted">'+esc(r.provider||'-')+'</td>'
+        + '<td><span class="tag">'+(r.status||'ERR')+'</span></td>'
+        + '<td class="muted">'+(r.latency_ms||0)+' ms</td></tr>';
+    }).join('');
+    if(!recent) recent = '<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">暂无请求记录，发送一次请求后即可在此看到调用情况。</td></tr>';
+
+    // 模型调用排行
+    var ranking = (d.modelRanking||[]).map(function(r, i){
+      var pct = dsPct((r.count / Math.max(1, (d.stats||{}).totalRequests||1)) * 100);
+      return '<div class="ds-rank-row"><span class="ds-rank-n">#'+(i+1)+'</span>'
+        + '<span class="ds-rank-name">'+esc(r.model)+'</span>'
+        + '<div class="ds-bar"><i style="width:'+pct+'%"></i></div>'
+        + '<span class="ds-rank-c">'+r.count+'</span></div>';
+    }).join('');
+    if(!ranking) ranking = '<p class="muted" style="text-align:center;padding:16px">暂无调用数据。</p>';
+
+    // 供应商健康度
+    var pvds = (d.providers||[]).map(function(p){
+      var h = p.health || {};
+      var avg = h.avg != null ? Math.round(h.avg)+'ms' : '-';
+      var rate = h.count ? Math.round((h.ok||0)/h.count*100) : 0;
+      return '<div class="ds-prov"><div class="ds-prov-head">'
+        + '<span class="dot '+(p.enabled?'g':'r')+'"></span><b>'+esc(p.name)+'</b>'
+        + '<span class="tag '+(p.builtin?'builtin':'custom')+'">'+esc(p.keys||0)+' key</span></div>'
+        + '<div class="ds-prov-meta"><span>成功率 '+rate+'%</span><span>平均 '+avg+'</span></div>'
+        + '<div class="ds-bar"><i style="width:'+dsPct(rate)+'%"></i></div></div>';
+    }).join('');
+    if(!pvds) pvds = '<p class="muted" style="text-align:center;padding:16px">还没有供应商，先去添加一家吧。</p>';
+
+    // 使用指南（首次进入自动展开，localStorage 记忆）
+    var guide = window.render_guide ? window.render_guide(true) : '';
+
+    view.innerHTML =
+      '<div class="ds">'
+      + '<div class="ds-head">'
+      + '<div><h2>irouter 总览</h2><small class="muted">版本 v'+(d.version||'')+' · 数据每 30 秒自动刷新</small></div>'
+      + '<div class="row"><button class="primary" onclick="location.hash=\'#providers\'">＋ 添加供应商</button>'
+      + '<button onclick="window.render_dashboard&&window.render_dashboard()">刷新</button>'
+      + '<button onclick="window.showGuide&&window.showGuide(true)" title="查看使用指南">❔ 帮助</button></div>'
+      + '</div>'
+      + '<div class="ds-cards">' + cards + '</div>'
+      + banner
+      + '<div class="ds-grid">'
+      + '  <div class="card ds-col-2"><div class="card-head"><h3>最近请求</h3><small class="muted">最新 8 条</small></div>'
+      + '    <div style="overflow-x:auto"><table><thead><tr><th></th><th>时间</th><th>模型</th><th>供应商</th><th>状态</th><th>耗时</th></tr></thead><tbody>'+recent+'</tbody></table></div></div>'
+      + '  <div class="card"><div class="card-head"><h3>模型调用排行</h3></div>'+ranking+'</div>'
+      + '</div>'
+      + '<div class="card"><div class="card-head"><h3>供应商健康度</h3><small class="muted">成功率 / 平均延迟</small></div>'
+      + '  <div class="ds-prov-grid">'+pvds+'</div></div>'
+      + guide
+      + '</div>';
+  }).catch(function(err){
+    if(!silent) view.innerHTML = '<div class="alert">看板加载失败：'+esc(err&&err.message||err)+'<br><button class="primary" onclick="window.render_dashboard&&window.render_dashboard()">重试</button></div>';
+  });
+};
+
+// 使用指南：6 步，首次自动弹出，localStorage 记忆
+window.showGuide = function(force){
+  var wrap = document.getElementById('guideOverlay');
+  if(!wrap){ // 若已内联渲染则复用
+    var view = $('#view');
+    if(view) { window.render_dashboard && window.render_dashboard(); }
+  }
+  // 直接以 modal 形式展示，兼容无 overlay 场景
+  var steps = [
+    { t:'① 部署完成', d:'irouter 已运行。先在右上角确认存储状态为 <b>🟢 已持久化·KV</b>；若是黄点，请到 Deno Deploy 项目设置启用 Deno KV。' },
+    { t:'② 添加供应商', d:'进入「供应商」→「＋ 添加供应商」，填写名称、标识（如 ollama）、Base URL 与协议（默认 OpenAI 兼容）。' },
+    { t:'③ 配置 Key', d:'在供应商行点「编辑」或到「Keys」页，为该供应商添加 API Key（自建供应商可不填）。' },
+    { t:'④ 设置路由规则', d:'进入「路由规则」→「＋ 添加规则」，用 pattern 匹配请求路径，选择转发的供应商列表（按顺序兜底）。' },
+    { t:'⑤ 验证转发', d:'向 <code>/v1/chat/completions</code> 发送请求（带上 <code>Authorization: Bearer &lt;PROXY_KEY&gt;</code>），看「日志/延迟」页确认命中。' },
+    { t:'⑥ 监控与告警', d:'回到本首页看总请求/成功率/模型排行；异常会在右上角提示，可在「延迟/用量」页细查。' },
+  ];
+  var html = '<div id="guideOverlay" class="guide-overlay"><div class="guide-card card">'
+    + '<div class="guide-head"><h2>🚀 快速上手 irouter</h2>'
+    + '<button class="x" onclick="document.getElementById(\'guideOverlay\').remove()">×</button></div>'
+    + '<ol class="guide-steps">'+ steps.map(function(s,i){ return '<li><b>'+(i+1)+'. '+s.t.replace(/^\d+\.\s*/,'')+'</b><p>'+s.d+'</p></li>'; }).join('') +'</ol>'
+    + '<div class="guide-foot"><label><input type="checkbox" id="guideDontShow"> 不再自动显示（可在「帮助」重新打开）</label>'
+    + '<button class="primary" onclick="var cb=document.getElementById(\'guideDontShow\');try{if(cb&&cb.checked)localStorage.setItem(\'irouter_guide_dont\',\'1\');}catch(e){}document.getElementById(\'guideOverlay\').remove()">开始使用</button></div>'
+    + '</div></div>';
+  var old = document.getElementById('guideOverlay'); if(old) old.remove();
+  var div = document.createElement('div');
+  div.innerHTML = html;
+  document.body.appendChild(div.firstChild);
+};
+window.render_guide = function(inline){
+  // 首次进入自动弹出
+  try { if(!localStorage.getItem('irouter_guide_dont') && !location.hash) window.showGuide(); } catch(e){}
+  return ''; // 以弹层形式展示，不占看板流
 };
 
 // ===================================================================
@@ -1080,8 +1273,11 @@ window.bootApp = function(){
   tickClock();
   setInterval(tickClock, 30000);
   var hash = (location.hash||'').replace('#','');
-  var tab = ['providers','keys','latency','usage','logs','routes'].indexOf(hash) >= 0 ? hash : 'providers';
+  var tab = ['dashboard','providers','keys','latency','usage','logs','routes'].indexOf(hash) >= 0 ? hash : 'dashboard';
   window.loadTab(tab);
+  // Dashboard 自动刷新（30s），切走时停止
+  if (window.DASHBOARD_TIMER) clearInterval(window.DASHBOARD_TIMER);
+  window.DASHBOARD_TIMER = setInterval(function(){ if ((location.hash||'') === '#dashboard') window.render_dashboard && window.render_dashboard(true); }, 30000);
 };
 
 // 登录页事件必须在启动后台之前就绑定：否则首次加载（未登录）时
