@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.4.4";
+const VERSION = "2.4.5";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -732,6 +732,8 @@ app.delete("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const 
 app.post("/admin/api/providers/reset-builtin", async (c) => { await CONFIG.ready; return c.json(CONFIG.resetBuiltin()); });
 // Keys
 app.post("/admin/api/providers/:id/keys", async (c) => { await CONFIG.ready; const { id } = c.req.param(); const b = await c.req.json(); const r = CONFIG.addKey(id, b.key, b.label, b.weight || 1); if (!r) return c.json({ error: "not found" }, 404); return c.json(r); });
+app.get("/admin/api/providers/:id/keys", async (c) => { await CONFIG.ready; const p = CONFIG.providers.get(c.req.param("id")); if (!p) return c.json({ error: "not found" }, 404); return c.json(p.keys.map(({ key, ...k }) => ({ ...k, key: key ? key.slice(0, 4) + "****" : "" }))); });
+app.put("/admin/api/providers/:id/keys/:keyId", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); const b = await c.req.json(); const p = CONFIG.providers.get(id); if (!p) return c.json({ error: "not found" }, 404); const k = p.keys.find((x) => x.id === keyId); if (!k) return c.json({ error: "not found" }, 404); if (typeof b.key === "string" && b.key) k.key = b.key; if (typeof b.weight === "number") k.weight = b.weight; if (typeof b.enabled === "boolean") k.enabled = b.enabled; CONFIG.persist(); return c.json({ ...k, key: k.key.slice(0, 4) + "****" }); });
 app.delete("/admin/api/providers/:id/keys/:keyId", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); return c.json(CONFIG.deleteKey(id, keyId)); });
 app.post("/admin/api/providers/:id/keys/:keyId/recover", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); return c.json(CONFIG.recoverKey(id, keyId)); });
 // 连通性测试 + 模型探测

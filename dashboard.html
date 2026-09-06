@@ -171,21 +171,28 @@ button.ghost:hover{background:var(--nav-hover)}
 table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
 th,td{text-align:left;padding:11px 12px;vertical-align:middle;border-bottom:1px solid var(--line)}
 th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.3px;text-transform:uppercase;background:var(--panel-2);position:sticky;top:0}
-tbody tr{align-items:stretch;transition:background .12s ease}
+tbody tr{align-items:center;transition:background .12s ease}
 tbody tr:hover{background:var(--panel-2)}
 tbody tr:last-child td{border-bottom:none}
 
 /* —— 操作按钮组：与 .primary 统一的渐变色按钮（无外框底色） —— */
 .actions{display:inline-flex;align-items:center;gap:6px}
-/* 操作列：隔离整行 hover 的灰色；按钮组无底色，仅做布局 */
-td.row-actions{display:flex!important;align-items:center;justify-content:flex-end;flex-wrap:nowrap;white-space:nowrap;padding:11px 12px!important;background:transparent!important;height:100%;box-sizing:border-box}
-/* 名称列：与操作列完全一致的盒模型 + 同样用 flex 居中，保证垂直中线严格对齐 */
-td.cell-name{display:flex!important;align-items:center;justify-content:center;flex-direction:column;padding:11px 12px!important;vertical-align:middle;min-height:56px;box-sizing:border-box}
-td.cell-name .cell-name-inner{display:flex;flex-direction:column;justify-content:center;line-height:1.35;width:100%}
+/* 对齐核心：名称列与操作列使用完全相同的 height / padding / box-sizing / flex 居中基准，
+   由 tr 的 align-items:center 保证整行（含两行名称的单元格）在 <tr> 内垂直居中，
+   按钮组中线 = 名称中线。 */
+td.row-actions, td.cell-name{
+  display:flex!important;align-items:center;
+  height:48px;padding:11px 12px!important;box-sizing:border-box;
+  vertical-align:middle;background:transparent!important;
+}
+td.row-actions{justify-content:flex-end;flex-wrap:nowrap;white-space:nowrap}
+td.cell-name{justify-content:flex-start;gap:10px}
+td.cell-name .cell-name-inner{display:flex;flex-direction:column;justify-content:center;line-height:1.35;width:auto}
 .btn-group{
-  display:inline-flex;align-items:center;gap:0;
+  display:inline-flex;align-items:center;justify-content:center;gap:0;
   background:transparent;   /* 无外壳底色 —— 你要求：不要灰色容器 */
   padding:0;border-radius:0;box-shadow:none;
+  line-height:1;vertical-align:middle;   /* ← 防止按钮文字相对胶囊基线偏移 */
 }
 table .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:4px;
@@ -244,12 +251,11 @@ input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);trans
 
 /* ===================== Toast ===================== */
 .toast{
-  position:fixed;top:22px;left:50%;transform:translateX(-50%) translateY(-12px);
+  position:fixed;top:22px;left:50%;transform:translateX(-50%);
   background:var(--panel);color:var(--txt);padding:11px 20px;border-radius:12px;
   z-index:99999;font-size:13px;font-weight:500;border:1px solid var(--line);box-shadow:var(--shadow);
-  opacity:0;transition:all .22s cubic-bezier(.4,0,.2,1);pointer-events:none;max-width:90vw
+  opacity:1;pointer-events:none;max-width:90vw
 }
-.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* ===================== 登录页 ===================== */
 #login-page{background:radial-gradient(1200px 600px at 50% -10%,color-mix(in srgb,var(--brand) 16%,transparent),var(--bg) 60%)}
@@ -353,12 +359,23 @@ var esc = function(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(
 
 window.closeModal = function(){ $('#modal').classList.remove('on'); };
 
-window.toast = function(msg, kind){
+window.toast = function(msg, kind, opts){
+  opts = opts || {};
   var d = document.createElement('div');
+  d.className = 'toast toast-' + (kind || 'ok');
   d.textContent = msg;
-  d.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel);color:var(--txt);padding:9px 16px;border-radius:8px;z-index:99;font-size:13px;border:1px solid '+ (kind==='err'?'var(--bad)':'var(--brand)');
+  // 位置：默认屏幕顶部居中（opts.center 时改为垂直居中于屏幕中央）
+  var top = opts.center ? '50%' : '22px';
+  var trans = opts.center ? 'translate(-50%,-50%)' : 'translateX(-50%)';
+  d.style.cssText =
+    'position:fixed;top:' + top + ';left:50%;transform:' + trans +
+    ';background:var(--panel);color:var(--txt);padding:11px 20px;border-radius:12px;' +
+    'z-index:99999;font-size:13px;font-weight:500;border:1px solid ' + (kind==='err'?'var(--bad)':'var(--brand)') +
+    ';box-shadow:var(--shadow);max-width:90vw;pointer-events:none;opacity:0;transition:opacity .18s ease';
   document.body.appendChild(d);
-  setTimeout(function(){ d.remove(); }, 2400);
+  requestAnimationFrame(function(){ d.style.opacity = '1'; });
+  setTimeout(function(){ d.style.opacity = '0'; }, 1800);
+  setTimeout(function(){ d.remove(); }, 2200);
 };
 
 window.api = function(path, opts){
@@ -569,7 +586,7 @@ window.saveProvider = function(id){
   var method = id ? 'PUT' : 'POST';
   var path = '/providers' + (id ? '/'+encodeURIComponent(id) : '');
   window.api(path, {method:method, body:data}).then(function(){
-    window.toast('已保存'); closeModal(); window.render_providers();
+    window.toast('已保存', 'ok', {center:true}); closeModal(); window.render_providers();
   }).catch(function(err){ window.toast('保存失败：'+err.message,'err'); console.error(err); });
 };
 
@@ -614,26 +631,54 @@ window.render_keys = function(){
   }).catch(function(err){ $('#view').innerHTML = '<div class="alert" style="display:block">加载失败：'+esc(err.message)+'</div>'; });
 };
 
-window.render_keys_list = function(){
-  var pid = $('#keyProvider').value;
+window.render_keys_list = function(forcePid){
+  // pid 取值链：显式参数 > 弹窗里正在编辑的供应商 > 下拉框 > 缓存里第一个有 key 的 > 供应商列表第一个
+  var pid = (forcePid || '').trim()
+          || ($('#k_pid') && $('#k_pid').value) || ''
+          || ($('#keyProvider') && $('#keyProvider').value) || '';
+  if(!pid && window._keysCache){
+    for(var _p in window._keysCache){ if(window._keysCache[_p] && window._keysCache[_p].length){ pid = _p; break; } }
+  }
+  if(!pid && window.PROVIDERS && window.PROVIDERS.length){ pid = (window.PROVIDERS.find(function(p){ return !p.builtin; }) || window.PROVIDERS[0]).id; }
   if(!pid){ $('#keyList').innerHTML = '<p class="muted">请先选择供应商。</p>'; return; }
-  window.api('/providers/'+encodeURIComponent(pid)+'/keys').then(function(keys){
-    var html = '<div style="overflow-x:auto"><table><thead><tr><th>状态</th><th>Key（脱敏）</th><th>权重</th><th>失败</th><th></th></tr></thead><tbody>';
-    (keys||[]).forEach(function(k){
-      html += '<tr><td><span class="dot '+(k.enabled?'g':'r')+'"></span></td><td><code>'+esc(k.key||'(未设置)')+'</code></td><td>'+esc(k.weight||1)+'</td><td>'+(k.failCount||0)+'</td>';
-      html += '<td><button onclick="testKey(\''+esc(pid)+'\',\''+esc(k.id)+'\')">测试</button> ';
-      if(k.failCount>0) html += '<button onclick="recoverKey(\''+esc(pid)+'\',\''+esc(k.id)+'\')">恢复</button> ';
-      html += '<button class="danger" onclick="deleteKey(\''+esc(pid)+'\',\''+esc(k.id)+'\')">删除</button></td></tr>';
-    });
-    if(!keys || !keys.length){
-      html += '<tr><td colspan="5" class="muted">该供应商还没有 Key，点击右上「＋ 添加 Key」创建一个。</td></tr>';
+  // 下拉框同步选中（避免下次取值链错位）
+  // 关键：若 select 尚未被 render_keys 填充（加载顺序/请求失败等），此处兜底自建 option 并选中，
+  //       杜绝“sel.value=pid 在空 select 上静默失败 → pid 取值链错位 → 列表空白”
+  var sel = document.getElementById('keyProvider');
+  if(sel){
+    if(!sel.querySelector('option[value="'+pid+'"]')){
+      var opt = document.createElement('option');
+      opt.value = pid; opt.textContent = (window.PROVIDERS && window.PROVIDERS.find(function(p){ return p.id===pid; })) ? (window.PROVIDERS.find(function(p){ return p.id===pid; })).name : pid;
+      sel.appendChild(opt);
     }
-    html += '</tbody></table></div>';
-    html += '<button class="primary" style="margin-top:10px" id="btnAddKeyBottom" type="button">＋ 添加 Key</button>';
-    $('#keyList').innerHTML = html;
-    var b2 = document.getElementById('btnAddKeyBottom');
-    if(b2) b2.addEventListener('click', function(){ window.openKey($('#keyProvider').value); });
+    if(sel.value !== pid){ try{ sel.value = pid; }catch(e){} }
+  }
+  // 优先用本地缓存（保存/删除后即时可见，无需等网络）；缓存为空时再拉后端
+  var cache = window._keysCache && window._keysCache[pid];
+  if(cache && cache.length){ render_keys_rows(pid, cache); return; }
+  window.api('/providers/'+encodeURIComponent(pid)+'/keys').then(function(keys){
+    window._keysCache = window._keysCache || {};
+    window._keysCache[pid] = keys || [];
+    render_keys_rows(pid, keys || []);
   }).catch(function(err){ $('#keyList').innerHTML = '<div class="alert" style="display:block">'+esc(err.message)+'</div>'; });
+};
+
+window.render_keys_rows = function(pid, keys){
+  var html = '<div style="overflow-x:auto"><table><thead><tr><th>状态</th><th>Key（脱敏）</th><th>权重</th><th>失败</th><th></th></tr></thead><tbody>';
+  (keys||[]).forEach(function(k){
+    html += '<tr><td><span class="dot '+(k.enabled?'g':'r')+'"></span></td><td><code>'+esc(k.key||'(未设置)')+'</code></td><td>'+esc(k.weight||1)+'</td><td>'+(k.failCount||0)+'</td>';
+    html += '<td><button onclick="testKey(\''+esc(pid)+'\',\''+esc(k.id)+'\')">测试</button> ';
+    if(k.failCount>0) html += '<button onclick="recoverKey(\''+esc(pid)+'\',\''+esc(k.id)+'\')">恢复</button> ';
+    html += '<button class="danger" onclick="deleteKey(\''+esc(pid)+'\',\''+esc(k.id)+'\')">删除</button></td></tr>';
+  });
+  if(!keys || !keys.length){
+    html += '<tr><td colspan="5" class="muted">该供应商还没有 Key，点击右上「＋ 添加 Key」创建一个。</td></tr>';
+  }
+  html += '</tbody></table></div>';
+  html += '<button class="primary" style="margin-top:10px" id="btnAddKeyBottom" type="button">＋ 添加 Key</button>';
+  $('#keyList').innerHTML = html;
+  var b2 = document.getElementById('btnAddKeyBottom');
+  if(b2) b2.addEventListener('click', function(){ window.openKey($('#keyProvider').value); });
 };
 
 window.openKey = function(pid, keyId){
@@ -649,28 +694,31 @@ window.openKey = function(pid, keyId){
   $('#modal').classList.add('on');
 };
 
+// 本地缓存：保存/测试/删除后立即更新，避免依赖整列重拉
+window._keysCache = window._keysCache || {};
+
 window.saveKey = function(pid, keyId){
   pid = (pid || $('#k_pid').value || '').trim();
   if(!pid){ window.toast('请先选择供应商','err'); return; }          // ← 明确提示，不再发空请求
   var keyVal = ($('#k_key').value||'').trim();
   if(!keyVal){ window.toast('请输入 Key','err'); return; }
   var body = {key:keyVal, weight:parseInt($('#k_weight').value)||1, enabled:$('#k_enabled').checked};
-  var method = keyId ? 'PUT' : 'POST';
-  var path = '/providers/'+encodeURIComponent(pid)+'/keys'+(keyId?'/'+encodeURIComponent(keyId):'');
-  window.api(path, {method:method, body:body}).then(function(){
-    window.toast('已保存'); closeModal();
-    // 关键闭环：重新拉供应商列表 → 下拉框回填 → 强制选中刚保存的供应商 → 重新拉取该供应商的 keys 渲染
-    window.api('/providers').then(function(list){
-      var sel = document.getElementById('keyProvider');
-      if(sel){
-        var opts = '<option value="">（无）</option>';
-        (list||[]).forEach(function(p){ opts += '<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>'; });
-        sel.innerHTML = opts;
-        sel.value = pid;                       // 强制选中刚保存的供应商
-      }
-      window.render_keys_list();                 // 用当前下拉框值重新拉取并渲染
-    }).catch(function(){ window.render_keys_list(); });
-  }).catch(function(err){ window.toast(err.message,'err'); });
+  var method, path;
+  if(keyId){
+    method = 'PUT'; path = '/providers/'+encodeURIComponent(pid)+'/keys/'+encodeURIComponent(keyId);
+  }else{
+    method = 'POST'; path = '/providers/'+encodeURIComponent(pid)+'/keys';
+  }
+  window.api(path, {method:method, body:body}).then(function(res){
+    window.toast('已保存', 'ok', {center:true}); closeModal();
+    // 关键闭环：把后端返回的 key 直接写入本地缓存并渲染，不再依赖整列重拉（断掉 404 链路）
+    var saved = (res && res.id) ? res : { id: keyId || ('k_'+Date.now().toString(36)), key: keyVal, weight: body.weight, enabled: body.enabled, failCount: 0 };
+    window._keysCache = window._keysCache || {};
+    var list = window._keysCache[pid] = window._keysCache[pid] || [];
+    var idx = list.findIndex(function(x){ return x.id === saved.id; });
+    if(idx >= 0) list[idx] = Object.assign({}, list[idx], saved); else list.push(saved);
+    window.render_keys_list(pid);                       // ← 显式传 pid，锁定刚保存的供应商，立即显示
+  }).catch(function(err){ window.toast((err&&err.message)||'保存失败','err'); });
 };
 
 window.testKey = function(pid, keyId){
