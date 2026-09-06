@@ -454,6 +454,10 @@ function initTableActions(){
       window.openRoute({id:id, pattern:pattern, providers:providers});
     }
     else if(action === 'delete-route'){ window.deleteRoute(id); }
+    // —— Keys 页按钮（编辑/删除/恢复），从 data-pid + data-id 取值 ——
+    else if(action === 'edit-key'){ window.openKey(btn.dataset.pid, id); }
+    else if(action === 'delete-key'){ window.deleteKey(btn.dataset.pid, id); }
+    else if(action === 'recover-key'){ window.recoverKey(btn.dataset.pid, id); }
   });
 }
 
@@ -619,12 +623,17 @@ window.render_keys = function(){
     var opts = '<option value="">（无）</option>';
     (list||[]).forEach(function(p){ opts += '<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>'; });
     $('#view').innerHTML = '<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="display:inline">Keys</h2><button class="primary" id="btnAddKey" type="button">＋ 添加 Key</button></div>'+
-      '<label>选择供应商</label><select id="keyProvider" onchange="render_keys_list()">'+opts+'</select>'+
+      '<label>选择供应商</label><select id="keyProvider">'+opts+'</select>'+
       '<div id="keyList" style="margin-top:12px"></div></div>';
-    // 优先选中自建供应商（新增的），无则选第一个
+    // 选中逻辑：尊重用户上次的选择 > 首个自建 > 第一个供应商（只负责初次默认，不再强制跳回自建）
+    var remembered = window.currentKeyProviderId;
     var custom = (list||[]).find(function(p){ return p.isCustom || !p.builtin; });
-    var first = custom ? custom.id : (list&&list[0] ? list[0].id : '');
-    if(first){ $('#keyProvider').value = first; }
+    var first = (remembered && list.some(function(p){ return p.id===remembered; })) ? remembered
+              : (custom ? custom.id : (list&&list[0] ? list[0].id : ''));
+    var sel = document.getElementById('keyProvider');
+    if(first && sel){ sel.value = first; window.currentKeyProviderId = first; }
+    // change 用 addEventListener（不依赖 onchange 属性），切换供应商即时重新渲染
+    sel.addEventListener('change', function(){ window.currentKeyProviderId = sel.value; window.render_keys_list(); });
     window.render_keys_list();
     var addBtn = document.getElementById('btnAddKey');
     if(addBtn) addBtn.addEventListener('click', function(){ window.openKey($('#keyProvider').value); });
@@ -664,12 +673,22 @@ window.render_keys_list = function(forcePid){
 };
 
 window.render_keys_rows = function(pid, keys){
+  // 操作按钮统一为「路由规则页同款」胶囊样式：.btn-group > .btn(.btn-edit/.btn-delete)
+  var actionsFor = function(k){
+    var btns = '<span class="btn-group">';
+    btns += '<button type="button" class="btn btn-edit" data-action="edit-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">编辑</button>';
+    btns += '<button type="button" class="btn btn-delete" data-action="delete-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">删除</button>';
+    btns += '</span>';
+    return btns;
+  };
   var html = '<div style="overflow-x:auto"><table><thead><tr><th>状态</th><th>Key（脱敏）</th><th>权重</th><th>失败</th><th></th></tr></thead><tbody>';
   (keys||[]).forEach(function(k){
     html += '<tr><td><span class="dot '+(k.enabled?'g':'r')+'"></span></td><td><code>'+esc(k.key||'(未设置)')+'</code></td><td>'+esc(k.weight||1)+'</td><td>'+(k.failCount||0)+'</td>';
-    html += '<td><button onclick="testKey(\''+esc(pid)+'\',\''+esc(k.id)+'\')">测试</button> ';
-    if(k.failCount>0) html += '<button onclick="recoverKey(\''+esc(pid)+'\',\''+esc(k.id)+'\')">恢复</button> ';
-    html += '<button class="danger" onclick="deleteKey(\''+esc(pid)+'\',\''+esc(k.id)+'\')">删除</button></td></tr>';
+    html += '<td><span class="btn-group">';
+    html += '<button type="button" class="btn btn-edit" data-action="edit-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">编辑</button>';
+    if(k.failCount>0) html += '<button type="button" class="btn btn-edit" data-action="recover-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">恢复</button>';
+    html += '<button type="button" class="btn btn-delete" data-action="delete-key" data-pid="'+esc(pid)+'" data-id="'+esc(k.id)+'">删除</button>';
+    html += '</span></td></tr>';
   });
   if(!keys || !keys.length){
     html += '<tr><td colspan="5" class="muted">该供应商还没有 Key，点击右上「＋ 添加 Key」创建一个。</td></tr>';
