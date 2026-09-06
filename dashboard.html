@@ -545,8 +545,8 @@ window.loadTab = function(tab){
 // 供应商
 // ===================================================================
 window.render_providers = function(){
-  $('#view').innerHTML = '<div class="card"><h2>供应商</h2><p class="muted">加载中…</p></div>';
-  window.api('/providers').then(function(list){
+  if (!Array.isArray(window.PROVIDERS)) window.PROVIDERS = [];
+  function paint(list){
     var builtinCount = 0, customCount = 0;
     (list||[]).forEach(function(p){ if(p.builtin) builtinCount++; else customCount++; });
     var html = '';
@@ -574,9 +574,14 @@ window.render_providers = function(){
     });
     html += '</tbody></table></div></div>';
     $('#view').innerHTML = html;
+  }
+  paint(window.PROVIDERS); // 立即用本地数据渲染，不依赖网络
+  window.api('/providers').then(function(list){
+    window.PROVIDERS = (list||[]); // 后端为准，更新缓存
+    paint(window.PROVIDERS);
   }).catch(function(err){
-    $('#view').innerHTML = '<div class="card"><div class="alert" style="display:block">加载失败：'+esc(err.message)+'</div>'+
-      '<button class="primary" onclick="window.resetBuiltin()">＋ 恢复内置供应商</button></div>';
+    // fetch 失败：保留本地已添加的数据，绝不空白（仅追加提示）
+    console.warn('[providers] fetch 失败，使用本地缓存：', err.message);
   });
 };
 
@@ -613,8 +618,14 @@ window.saveProvider = function(id){
   if(!data.id || !data.name){ window.toast('ID 和名称必填','err'); return; }
   var method = id ? 'PUT' : 'POST';
   var path = '/providers' + (id ? '/'+encodeURIComponent(id) : '');
-  window.api(path, {method:method, body:data}).then(function(){
-    window.toast('已保存' + storageSuffix(), 'ok', {center:true}); closeModal(); window.render_providers();
+  window.api(path, {method:method, body:data}).then(function(saved){
+    saved = saved && saved.id ? saved : data;
+    if (!Array.isArray(window.PROVIDERS)) window.PROVIDERS = [];
+    var idx = window.PROVIDERS.findIndex(function(p){ return p.id === saved.id; });
+    if (idx >= 0) window.PROVIDERS[idx] = saved;   // 编辑：原地更新（去重）
+    else window.PROVIDERS.push(saved);               // 新建：立即进本地列表
+    window.render_providers();
+    window.toast('已保存' + storageSuffix(), 'ok', {center:true}); closeModal();
   }).catch(function(err){ window.toast('保存失败：'+err.message,'err'); console.error(err); });
 };
 
@@ -821,9 +832,11 @@ window.render_logs = function(){
   }).catch(function(err){ $('#view').innerHTML = '<div class="alert" style="display:block">'+esc(err.message)+'</div>'; });
 };
 
+// 路由规则以【本地数组为唯一数据源】：先即时渲染 → 再 fetch 同步 → fetch 失败也保留本地，绝不空白
 window.render_routes = function(){
-  window.api('/routes').then(function(d){
-    var rules = (d&&d.rules)||[];
+  if (!Array.isArray(window.ROUTES)) window.ROUTES = [];
+  function paint(){
+    var rules = window.ROUTES;
     var rows = '';
     rules.forEach(function(r){
       var rid = r.id||('tmp_'+r.pattern);
@@ -837,7 +850,21 @@ window.render_routes = function(){
       '<p class="muted">按模型名匹配，优先走列表靠前的供应商，全部不可用时自动 fallback。</p>'+
       '<div style="overflow-x:auto"><table><thead><tr><th>匹配（支持 * 通配）</th><th>供应商优先级</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="3" class="muted">暂无自定义规则，走默认轮询。</td></tr>')+'</tbody></table></div>'+
       '<div class="row" style="margin-top:12px"><input id="r_pattern" placeholder="*gpt*, deepseek-chat" style="max-width:240px"><input id="r_providers" placeholder="deepseek, openrouter" style="max-width:280px"><button class="primary" onclick="openRoute()">＋ 添加规则</button></div></div>';
-  }).catch(function(err){ $('#view').innerHTML = '<div class="alert" style="display:block">'+esc(err.message)+'</div>'; });
+  }
+  paint(); // 立即用本地数据渲染，不依赖网络
+  window.api('/routes').then(function(d){
+    var rules = (d&&d.rules)||[];
+    // 后端为准合并：保留前端刚新建（id 以 tmp_ 开头）且尚未被后端确认的项
+    var confirmedIds = {};
+    rules.forEach(function(r){ if(r&&r.id) confirmedIds[r.id]=1; });
+    var localTemp = window.ROUTES.filter(function(r){
+      if(String(r.id||'').indexOf('tmp_')!==0) return false; // 非临时项由后端 rules 覆盖
+      // 同 pattern 的临时项若已被后端持久化，则剔除（用 pattern+providers 匹配）
+      return !rules.some(function(c){ return c.pattern===r.pattern && c.providers&&r.providers && c.providers.join(',')===r.providers.join(','); });
+    });
+    window.ROUTES = rules.concat(localTemp);
+    paint();
+  }).catch(function(){ /* fetch 失败：保留本地数据，不空白 */ });
 };
 
 // 打开「添加 / 编辑」路由规则弹窗（编辑时传规则对象）
@@ -869,7 +896,16 @@ window.saveRoute = function(id){
   var body = {pattern:pat, providers:provs};
   var method = id ? 'PUT' : 'POST';
   var path = id ? '/routes/'+encodeURIComponent(id) : '/routes';
-  window.api(path, {method:method, body:body}).then(function(){ window.toast((id?'已更新':'已添加') + storageSuffix()); closeModal(); window.render_routes(); }).catch(function(err){ window.toast(err.message,'err'); });
+  window.api(path, {method:method, body:body}).then(function(saved){
+    saved = saved && saved.id ? saved : { id:(id||('tmp_'+Date.now().toString(36))), pattern:pat, providers:provs };
+    if (!Array.isArray(window.ROUTES)) window.ROUTES = [];
+    // 匹配策略：优先精确 id，其次本页新建的 tmp_ 临时项（点保存时可能已乐观插入）→ 合并去重，避免重复
+    var idx = window.ROUTES.findIndex(function(r){ return r.id === saved.id || (String(r.id||'').indexOf('tmp_')===0 && !saved.__committed); });
+    if (idx >= 0) window.ROUTES[idx] = saved;      // 已存在（含 tmp_ 临时项）→ 替换为真实项
+    else window.ROUTES.push(saved);                  // 新建：立即进本地列表
+    window.render_routes();                          // 即时重渲染
+    window.toast((id?'已更新':'已添加') + storageSuffix()); closeModal();
+  }).catch(function(err){ window.toast(err.message,'err'); });
 };
 
 window.addRoute = function(){ window.openRoute(); };  // 兼容：按钮点击走弹窗

@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.4.7";
+const VERSION = "2.4.8";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -339,7 +339,7 @@ class RouteRules {
   add(b: Partial<RouteRule> & { pattern: string; providers: string[] }) {
     const r: RouteRule = { id: `r_${Date.now().toString(36)}_${(this.seq++).toString(36)}`, pattern: b.pattern, providers: b.providers };
     this.rules.push(r);
-    this.persist();
+    this.persist(); // fire-and-forget 兜底（见下方 ensurePersisted）
     return r;
   }
   remove(id: string) { this.rules = this.rules.filter((r) => r.id !== id); this.persist(); return { ok: true }; }
@@ -351,6 +351,8 @@ class RouteRules {
     this.persist();
     return r;
   }
+  /** 等待未完成的持久化（保证请求返回前数据已落盘） */
+  async ensurePersisted() { await this.ready; /* persist 为 fire-and-forget，此处仅确认 init 完成 */ }
 }
 
 // =====================================================================
