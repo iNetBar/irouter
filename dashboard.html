@@ -469,53 +469,47 @@ window.toast = function(msg, kind, opts){
 //    - 剥离误传入的 "METHOD /url" 前缀
 //    - 确保以 "/" 开头、合并重复斜杠
 // ===================================================================
-window.api = function api(method, path, body){
-  // ---- 参数归一：同时兼容 api(method, path, body) 与 api(path, {method,body}) ----
+window.api = function(method, path, body) {
   var m, p, b;
-  if(typeof method === 'string' && typeof path === 'string'){
-    // 新式：api('GET', '/providers') 或 api('DELETE', '/providers/xxx')
-    m = method.toUpperCase();
-    p = path;
-    b = body;
+  if (typeof method === 'string' && typeof path === 'string') {
+    m = method.toUpperCase(); p = path; b = body;
   } else {
-    // 旧式：api('/providers', {method:'DELETE', body:{...}})
-    p = method;                       // 第一个参数其实是 path
-    var opts = (path && typeof path === 'object' && !Array.isArray(path)) ? path : {};
-    m = (opts.method || 'GET').toUpperCase();
-    b = opts.body;
+    p = method; var opts = path || {};
+    m = (opts.method || 'GET').toUpperCase(); b = opts.body;
   }
-  p = (p == null ? '' : String(p)).replace(/^\s+|\s+$/g, '');   // trim
-  var full = p.match(/^(GET|POST|PUT|DELETE|PATCH)\s+(.+)$/i);   // 剥离 "METHOD /url"
-  if(full){ m = full[1].toUpperCase(); p = full[2]; }
-  p = p.replace(/^(GET|POST|PUT|DELETE|PATCH)\s+/i, '');          // 再保险：去掉残留前缀
-  if(p.indexOf('/') !== 0){ p = '/' + p; }                       // 必须以 / 开头
-  p = p.replace(/([^:]\/)\/+/g, '$1');                           // 合并重复 //
-  var url = p;
-  // 业务片段自动拼 /admin/api 前缀；/admin/*、/v1/* 等已是完整路径则不拼
-  if(/^\/(providers|routes|keys|config|proxy-keys|health|storage|dashboard|models|admin|stats|logs)(\/|$)/.test(p)){
-    url = '/admin/api' + p;
+  // 规范化
+  p = String(p || '').replace(/^\s+|\s+$/g, '');
+  // 剥离 "METHOD /url" 格式
+  var full = p.match(/^(GET|POST|PUT|DELETE|PATCH)\s+(.+)$/i);
+  if (full) { m = full[1].toUpperCase(); p = full[2]; }
+  p = p.replace(/^(GET|POST|PUT|DELETE|PATCH)\s+/i, '');
+  if (p.indexOf('/') !== 0) p = '/' + p;
+  p = p.replace(/([^:]\/)\/+/g, '$1');
+  
+  // 拼 URL —— 防止双重 /admin/api 前缀
+  var url;
+  if (p.indexOf('/admin/api/') === 0) {
+    url = p;  // 已经完整，直接用
+  } else {
+    var ep = p.replace(/^\//, '');
+    if (/^(providers|routes|keys|dashboard|config|stats|logs|storage|status)(\/|$)/.test(ep)) {
+      url = '/admin/api/' + ep;
+    } else {
+      url = p;
+    }
   }
+  
   return fetch(url, {
     method: m,
-    headers: Object.assign({'Accept':'application/json'}, b ? {'Content-Type':'application/json'} : {}),
+    headers: b ? {'Content-Type':'application/json'} : {},
     body: b ? JSON.stringify(b) : undefined,
     credentials: 'include'
   }).then(function(r){
-    return r.text().then(function(txt){
-      var data = null;
-      if(txt){ try { data = JSON.parse(txt); } catch(e){ data = null; } }
-      if(r.ok){
-        if(data && data.ok === false && data.error) throw new Error(data.error);
-        return data;
-      }
-      var msg = (data && (data.error || data.message)) || txt || ('HTTP ' + r.status);
-      var err = new Error(msg);
-      err.status = r.status; err.path = p; err.url = url; err.response = data;
-      throw err;
-    });
+    if(!r.ok) return r.json().then(function(e){ throw e; });
+    return r.json();
   });
 };
-
+   
 window.confirmDanger = function(msg){
   return new Promise(function(res){ res(window.confirm(msg)); });
 };
