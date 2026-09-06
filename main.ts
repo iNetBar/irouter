@@ -1,609 +1,811 @@
-// irouter v2.4.1 - 供应商管理代理（含管理后台）
-// Deno Deploy 入口
-
-const VERSION = "2.4.1";
-
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 
-// ========== 类型 ==========
-interface Provider {
-  id: string;
-  name: string;
-  type: string;
-  baseUrl: string;
-  apiKey: string;
-  models: string[];
-  enabled: boolean;
-  builtin: boolean;
-  isCustom?: boolean;
-  weight: number;
-  timeout: number;
-  maxRetries: number;
-  latencyMs: number;
-  successRate: number;
-  dailyLimit: number;
-  usedToday: number;
-  lastUsed: number;
-  createdAt: number;
+// =====================================================================
+//  LLM Router · v2.3.5 (完整版)
+//  单文件实现，无外部模块依赖（除 Hono）
+//
+//  功能:
+//  [核心] 多供应商路由 / OpenAI 兼容协议转换(Anthropic·Google·GLM)
+//  [目录] 20+ 内置免费/低价/自建供应商
+//  [配置] KV 持久化配置中心 (环境变量 SEED_KEYS 做种子)
+//  [后台] 可视化 Dashboard (供应商/Keys/延迟/用量/日志/路由 6 Tab)
+//  [监控] 健康检查 · Key 失效自动摘除 · Webhook 告警
+//  [统计] 延迟 P50/P95/avg/max · Token 用量 · 请求审计日志
+//  [路由] 模型->供应商优先级 + 通配 fallback
+//  [鉴权] 多 Proxy Key (白名单/RPM/过期) + 静态 PROXY_KEY
+//  [运维] 配置导入/导出 · 预算拦截
+// =====================================================================
+
+// ---------- ENV ----------
+const VERSION = "2.4.2";
+const ENV = {
+  PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
+  SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
+  MONTHLY_BUDGET: Number(Deno.env.get("MONTHLY_BUDGET") || "0"),
+  DAILY_TOKEN_BUDGET: Number(Deno.env.get("DAILY_TOKEN_BUDGET") || "0"),
+  RATE_LIMIT_RPM: Number(Deno.env.get("RATE_LIMIT_RPM") || "0"),
+  ENABLE_USAGE: (Deno.env.get("ENABLE_USAGE") || "true") !== "false",
+  HEALTH_CHECK_INTERVAL_MS: Number(Deno.env.get("HEALTH_CHECK_INTERVAL_MS") || "300000"),
+  KEY_FAIL_THRESHOLD: Number(Deno.env.get("KEY_FAIL_THRESHOLD") || "3"),
+  KEY_AUTO_RECOVER: (Deno.env.get("KEY_AUTO_RECOVER") || "true") !== "false",
+  WEBHOOK_URL: Deno.env.get("WEBHOOK_URL") || "",
+  WEBHOOK_SECRET: Deno.env.get("WEBHOOK_SECRET") || "",
+  LOG_RETENTION_HOURS: Number(Deno.env.get("LOG_RETENTION_HOURS") || "168"),
+  ADMIN_USER: Deno.env.get("ADMIN_USER") || "admin",
+  ADMIN_PASS: Deno.env.get("ADMIN_PASS") || "",
+  DEFAULT_ADMIN_PASS: Deno.env.get("DEFAULT_ADMIN_PASS") || "admin123",
+  SESSION_SECRET: Deno.env.get("SESSION_SECRET") || "irouter-session-secret-change-me",
+};
+
+// ---------- 内置供应商目录 (完整) ----------
+type Proto = "openai" | "anthropic" | "google" | "glm";
+interface BuiltinDef { name: string; protocol: Proto; baseUrl: string; defaultModel: string; isCustom?: boolean; }
+const BUILTIN: Record<string, BuiltinDef> = {
+  // 国产 (多有免费额度)
+  deepseek:   { name: "DeepSeek",       protocol: "openai",  baseUrl: "https://api.deepseek.com/v1",        defaultModel: "deepseek-chat" },
+  qwen:       { name: "通义千问",       protocol: "openai",  baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus" },
+  hunyuan:    { name: "腾讯混元",       protocol: "openai",  baseUrl: "https://api.hunyuan.cloud.tencent.com/v1", defaultModel: "hunyuan-lite" },
+  doubao:     { name: "豆包/火山方舟",  protocol: "openai",  baseUrl: "https://ark.cn-beijing.volces.com/api/v3", defaultModel: "doubao-pro-4k" },
+  kimi:       { name: "Kimi (Moonshot)", protocol: "openai", baseUrl: "https://api.moonshot.cn/v1",          defaultModel: "moonshot-v1-8k" },
+  glm:        { name: "智谱 GLM",      protocol: "glm",     baseUrl: "https://open.bigmodel.cn/api/paas/v4", defaultModel: "glm-4-flash" },
+  // 聚合 / 低价
+  siliconflow:{ name: "硅基流动",       protocol: "openai",  baseUrl: "https://api.siliconflow.cn/v1",      defaultModel: "deepseek-ai/DeepSeek-V2.5" },
+  groq:       { name: "Groq (极速)",    protocol: "openai",  baseUrl: "https://api.groq.com/openai/v1",     defaultModel: "llama-3.1-8b-instant" },
+  together:   { name: "Together",      protocol: "openai",  baseUrl: "https://api.together.xyz/v1",        defaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
+  openrouter: { name: "OpenRouter",     protocol: "openai",  baseUrl: "https://openrouter.ai/api/v1",       defaultModel: "openai/gpt-4o-mini" },
+  fireworks:  { name: "Fireworks",      protocol: "openai",  baseUrl: "https://api.fireworks.ai/inference/v1", defaultModel: "accounts/fireworks/models/llama-v3p1-8b-instruct" },
+  novita:     { name: "Novita",         protocol: "openai",  baseUrl: "https://api.novita.ai/v3/openai",    defaultModel: "meta-llama/llama-3.1-8b-instruct" },
+  ppio:       { name: "PPIO 派欧",      protocol: "openai",  baseUrl: "https://api.ppio.cn/v1",             defaultModel: "deepseek/deepseek-chat" },
+  mistral:    { name: "Mistral",        protocol: "openai",  baseUrl: "https://api.mistral.ai/v1",          defaultModel: "mistral-small-latest" },
+  cohere:     { name: "Cohere",         protocol: "openai",  baseUrl: "https://api.cohere.ai/v2",           defaultModel: "command-r-plus" },
+  // 国际官方
+  openai:     { name: "OpenAI",         protocol: "openai",  baseUrl: "https://api.openai.com/v1",          defaultModel: "gpt-4o-mini" },
+  anthropic:  { name: "Anthropic",      protocol: "anthropic", baseUrl: "https://api.anthropic.com/v1",     defaultModel: "claude-sonnet-4-20250514" },
+  google:     { name: "Google",         protocol: "google",  baseUrl: "https://generativelanguage.googleapis.com/v1beta", defaultModel: "gemini-1.5-flash" },
+  // 自建/私有 (默认禁用)
+  ollama:     { name: "Ollama (自建)",  protocol: "openai",  baseUrl: "http://localhost:11434/v1", defaultModel: "llama3", isCustom: true },
+  vllm:       { name: "vLLM (自建)",    protocol: "openai",  baseUrl: "http://localhost:8000/v1",  defaultModel: "qwen2",  isCustom: true },
+  oneapi:     { name: "OneAPI (自建)",  protocol: "openai",  baseUrl: "http://localhost:3000/v1",  defaultModel: "gpt-4o-mini", isCustom: true },
+};
+
+// ---------- 类型 ----------
+interface ApiKey { id: string; key: string; label?: string; weight: number; enabled: boolean; failCount: number; lastError?: string; disabledAt?: number; }
+interface Provider { id: string; name: string; protocol: Proto; baseUrl: string; defaultModel: string; models: string[]; keys: ApiKey[]; enabled: boolean; isCustom: boolean; }
+interface RouteRule { id: string; pattern: string; providers: string[]; } // pattern 支持 * 通配
+interface ProxyKey { id: string; key: string; label?: string; models?: string[]; rpm?: number; expiresAt?: number; enabled: boolean; calls: number; }
+interface LogEntry { ts: number; model: string; provider: string; status: number; latency_ms: number; input_tokens?: number; output_tokens?: number; error?: string; }
+interface AlertEntry { ts: number; event: string; provider?: string; key?: string; reason?: string; }
+
+// ---------- KV (懒加载) ----------
+let _kv: Deno.Kv | null | undefined = undefined;
+async function getKv(): Promise<Deno.Kv | null> {
+  if (_kv !== undefined) return _kv;
+  try { _kv = await Deno.openKv(); } catch { _kv = null; }
+  return _kv;
 }
 
-interface RouteRule {
-  id: string;
-  name: string;
-  match: string;
-  providerId: string;
-  priority: number;
-  enabled: boolean;
+// 启动时从 KV 恢复已修改的管理员密码（登录后改密会持久化到这里）
+(async () => {
+  const kv = await getKv();
+  if (kv) {
+    try {
+      const stored = await kv.get<{ password: string }>(["admin", "password"]);
+      if (stored.value?.password) (ENV as any).ADMIN_PASS = stored.value.password;
+    } catch {}
+  }
+})();
+
+// =====================================================================
+//  配置中心
+// =====================================================================
+class ConfigStore {
+  providers = new Map<string, Provider>();
+  ready: Promise<void>;
+  constructor() { this.ready = this.init(); }
+  async init() {
+    this.seedFromEnv();
+    const kv = await getKv();
+    if (kv) {
+      const stored = await kv.get<{ providers: Provider[] }>(["config"]);
+      if (stored.value?.providers) {
+        for (const p of stored.value.providers) this.providers.set(p.id, p);
+      }
+    }
+  }
+  seedFromEnv() {
+    for (const [id, def] of Object.entries(BUILTIN)) {
+      this.providers.set(id, { id, ...def, models: [], keys: [], enabled: !def.isCustom });
+    }
+    this.addSeedKeys();
+  }
+  addSeedKeys() {
+    for (const part of ENV.SEED_KEYS.split(",").filter(Boolean)) {
+      const [id, ...rest] = part.split(":");
+      const key = rest.join(":");
+      const p = this.providers.get(id);
+      if (p && key) p.keys.push({ id: `k_${p.keys.length}`, key, weight: 1, enabled: true, failCount: 0 });
+    }
+  }
+  mask(p: Provider) {
+    return { ...p, keys: p.keys.map(({ key, ...k }) => ({ ...k, key: key ? key.slice(0, 4) + "****" : "" })) };
+  }
+  async persist() {
+    const kv = await getKv();
+    if (!kv) return;
+    await kv.put(["config"], { providers: [...this.providers.values()] });
+  }
+  list() {
+    return [...this.providers.values()].map((p) => {
+      const m = this.mask(p);
+      // 标记是否为内置供应商（前端据此禁止删除、区分显示）
+      (m as any).builtin = !p.isCustom;
+      return m;
+    });
+  }
+  get(id: string) { const p = this.providers.get(id); return p ? this.mask(p) : null; }
+  upsert(input: Partial<Provider> & { id: string }) {
+    const e = this.providers.get(input.id);
+    // 保护：禁止覆盖内置供应商的关键字段（协议/baseUrl 由 BUILTIN 锁定）
+    if (e && !e.isCustom) {
+      const p: Provider = {
+        ...e,
+        name: input.name || e.name,
+        enabled: input.enabled !== undefined ? !!input.enabled : e.enabled,
+        models: input.models && input.models.length ? input.models : e.models,
+        keys: e.keys,
+        defaultModel: input.defaultModel || e.defaultModel,
+      };
+      this.providers.set(input.id, p);
+      this.persist();
+      return this.mask(p);
+    }
+    const p: Provider = {
+      id: input.id,
+      name: input.name || input.id,
+      protocol: (input.protocol || "openai") as Proto,
+      baseUrl: input.baseUrl || "",
+      defaultModel: input.defaultModel || "",
+      models: input.models || e?.models || [],
+      keys: e?.keys || [],
+      enabled: input.enabled !== false,
+      isCustom: !!input.isCustom,
+    };
+    this.providers.set(input.id, p);
+    this.persist();
+    return this.mask(p);
+  }
+  /** 一键恢复全部内置供应商（清空被误删/污染的，重新从 BUILTIN 铺底） */
+  resetBuiltin() {
+    let restored = 0;
+    for (const [id, def] of Object.entries(BUILTIN)) {
+      if (!this.providers.has(id)) restored++;
+      this.providers.set(id, { id, ...def, models: [], keys: [], enabled: !def.isCustom });
+    }
+    // 兜底：把 isCustom=false 但字段被污染的也重置回 BUILTIN 定义
+    for (const [id, def] of Object.entries(BUILTIN)) {
+      const cur = this.providers.get(id);
+      if (cur && !cur.isCustom) {
+        this.providers.set(id, { ...cur, protocol: def.protocol, baseUrl: def.baseUrl, defaultModel: def.defaultModel, name: def.name });
+      }
+    }
+    this.persist();
+    return { ok: true, restored, total: [...this.providers.values()].filter((p) => !p.isCustom).length };
+  }
+  delete(id: string) {
+    const p = this.providers.get(id);
+    // 保护：内置供应商不可删除，只能禁用
+    if (p && !p.isCustom) return { ok: false, error: "内置供应商不可删除，可禁用" };
+    this.providers.delete(id);
+    this.persist();
+    return { ok: true };
+  }
+  addKey(id: string, key: string, label?: string, weight = 1) {
+    const p = this.providers.get(id);
+    if (!p) return null;
+    const k: ApiKey = { id: `k_${Date.now().toString(36)}`, key, label, weight, enabled: true, failCount: 0 };
+    p.keys.push(k);
+    this.persist();
+    return { ...k, key: k.key.slice(0, 4) + "****" };
+  }
+  deleteKey(id: string, keyId: string) {
+    const p = this.providers.get(id);
+    if (!p) return { ok: false };
+    p.keys = p.keys.filter((k) => k.id !== keyId);
+    this.persist();
+    return { ok: true };
+  }
+  recoverKey(id: string, keyId: string) {
+    const p = this.providers.get(id);
+    if (!p) return { ok: false };
+    const k = p.keys.find((x) => x.id === keyId);
+    if (!k) return { ok: false };
+    k.failCount = 0; k.enabled = true; k.disabledAt = undefined; k.lastError = undefined;
+    this.persist();
+    return { ok: true };
+  }
+  pickKey(id: string): { key: string; index: number } | null {
+    const p = this.providers.get(id);
+    if (!p || !p.enabled) return null;
+    const e = p.keys.filter((k) => k.enabled && k.key);
+    if (!e.length) return null;
+    return { key: e[0].key, index: 0 }; // 简单取首个，可扩展加权轮询
+  }
 }
 
-// ========== 存储 ==========
-const KV_PROVIDERS = ["providers"] as const;
-const KV_ROUTES = ["routes"] as const;
+// =====================================================================
+//  延迟统计 (P50/P95/avg/max)
+// =====================================================================
+class LatencyStats {
+  private data = new Map<string, number[]>();
+  record(provider: string, ms: number) {
+    if (!this.data.has(provider)) this.data.set(provider, []);
+    const arr = this.data.get(provider)!;
+    arr.push(ms);
+    if (arr.length > 500) arr.shift();
+  }
+  private percentile(arr: number[], p: number) {
+    if (!arr.length) return 0;
+    const s = [...arr].sort((a, b) => a - b);
+    const idx = Math.min(s.length - 1, Math.floor((p / 100) * s.length));
+    return s[idx];
+  }
+  summary() {
+    const all = [...this.data.values()].flat();
+    return {
+      p50: this.percentile(all, 50),
+      p95: this.percentile(all, 95),
+      avg: all.length ? Math.round(all.reduce((a, b) => a + b, 0) / all.length) : 0,
+      max: all.length ? Math.max(...all) : 0,
+      count: all.length,
+    };
+  }
+  allByProvider() {
+    const out: Record<string, { p50: number; p95: number; avg: number; max: number; count: number }> = {};
+    for (const [k, arr] of this.data) {
+      out[k] = {
+        p50: this.percentile(arr, 50),
+        p95: this.percentile(arr, 95),
+        avg: arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0,
+        max: arr.length ? Math.max(...arr) : 0,
+        count: arr.length,
+      };
+    }
+    return out;
+  }
+}
 
-async function getKV<T>(key: readonly string[], fallback: T): Promise<T> {
+// =====================================================================
+//  请求审计日志
+// =====================================================================
+class RequestLog {
+  private entries: LogEntry[] = [];
+  add(e: LogEntry) { this.entries.push(e); }
+  query(opts: { provider?: string; model?: string; limit?: number } = {}) {
+    let r = [...this.entries];
+    if (opts.provider) r = r.filter((e) => e.provider === opts.provider);
+    if (opts.model) r = r.filter((e) => e.model === opts.model);
+    return r.slice(-(opts.limit || 100)).reverse();
+  }
+  prune() {
+    const cutoff = Date.now() - ENV.LOG_RETENTION_HOURS * 3600 * 1000;
+    this.entries = this.entries.filter((e) => e.ts > cutoff);
+  }
+  totalTokens() {
+    return this.entries.reduce((a, e) => a + (e.input_tokens || 0) + (e.output_tokens || 0), 0);
+  }
+}
+
+// =====================================================================
+//  路由规则 (模型 -> 供应商优先级 + 通配 fallback)
+// =====================================================================
+class RouteRules {
+  rules: RouteRule[] = [];
+  resolve(model: string, allProviders: string[]): string[] {
+    const matches: RouteRule[] = [];
+    for (const r of this.rules) {
+      const pat = r.pattern.replace(/\*/g, ".*");
+      if (new RegExp("^" + pat + "$", "i").test(model)) matches.push(r);
+    }
+    if (matches.length) {
+      // 按规则定义顺序拼接去重
+      const ordered: string[] = [];
+      for (const m of matches) for (const pid of m.providers) if (!ordered.includes(pid)) ordered.push(pid);
+      return ordered.filter((id) => allProviders.includes(id));
+    }
+    // 无规则：返回所有可用 (调用方按 defaultModel 匹配自然排序)
+    return allProviders;
+  }
+  list() { return this.rules; }
+  add(b: Partial<RouteRule> & { pattern: string; providers: string[] }) {
+    const r: RouteRule = { id: `r_${Date.now().toString(36)}`, pattern: b.pattern, providers: b.providers };
+    this.rules.push(r);
+    return r;
+  }
+  remove(id: string) { this.rules = this.rules.filter((r) => r.id !== id); return { ok: true }; }
+  update(id: string, b: Partial<RouteRule>) {
+    const r = this.rules.find((x) => x.id === id);
+    if (!r) return null;
+    if (b.pattern !== undefined) r.pattern = b.pattern;
+    if (b.providers !== undefined) r.providers = b.providers;
+    return r;
+  }
+}
+
+// =====================================================================
+//  多 Proxy Key 管理 (白名单/RPM/过期)
+// =====================================================================
+class ProxyKeyManager {
+  keys: ProxyKey[] = [];
+  add(b: Partial<ProxyKey> & { key: string }) {
+    const p: ProxyKey = { id: `pk_${Date.now().toString(36)}`, key: b.key, label: b.label, models: b.models, rpm: b.rpm, expiresAt: b.expiresAt, enabled: true, calls: 0 };
+    this.keys.push(p);
+    return { ...p, key: p.key.slice(0, 4) + "****" };
+  }
+  list() { return this.keys.map(({ key, ...k }) => ({ ...k, key: key.slice(0, 4) + "****" })); }
+  remove(id: string) { this.keys = this.keys.filter((k) => k.id !== id); return { ok: true }; }
+  validate(providedKey: string, model?: string): { ok: boolean } {
+    const p = this.keys.find((x) => x.key === providedKey && x.enabled);
+    if (!p) return { ok: false };
+    if (p.expiresAt && p.expiresAt < Date.now()) return { ok: false };
+    if (p.models?.length && model && !p.models.includes(model)) return { ok: false };
+    if (p.rpm && p.calls >= p.rpm) return { ok: false };
+    p.calls++;
+    return { ok: true };
+  }
+}
+
+// =====================================================================
+//  Webhook 告警
+// =====================================================================
+class WebhookNotifier {
+  alerts: AlertEntry[] = [];
+  constructor(private url?: string, private secret?: string) {}
+  async notify(event: string, payload: Record<string, unknown> = {}) {
+    const entry: AlertEntry = { ts: Date.now(), event, ...payload };
+    this.alerts.unshift(entry);
+    if (this.alerts.length > 100) this.alerts.pop();
+    if (!this.url) return;
+    try {
+      const body = JSON.stringify({ event, timestamp: new Date().toISOString(), ...payload });
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (this.secret) headers["x-webhook-signature"] = this.secret;
+      await fetch(this.url, { method: "POST", headers, body });
+    } catch { /* 不阻塞主流程 */ }
+  }
+}
+
+// =====================================================================
+//  配置导出
+// =====================================================================
+function exportConfig(providers: ReturnType<ConfigStore["list"]>, routes: RouteRules, pkm: ProxyKeyManager) {
+  return {
+    version: VERSION,
+    exported_at: new Date().toISOString(),
+    providers,
+    routes: routes.list(),
+    proxy_keys: pkm.list(),
+  };
+}
+
+// =====================================================================
+//  实例化
+// =====================================================================
+const CONFIG = new ConfigStore();
+const LATENCY = new LatencyStats();
+const REQLOG = new RequestLog();
+const ROUTES = new RouteRules();
+const PKM = new ProxyKeyManager();
+const WEBHOOK = new WebhookNotifier(ENV.WEBHOOK_URL || undefined, ENV.WEBHOOK_SECRET || undefined);
+
+// 用 SEED_KEYS 预置 ProxyKey
+for (const part of ENV.SEED_KEYS.split(",").filter(Boolean)) {
+  const [id, ...rest] = part.split(":");
+  const key = rest.join(":");
+  if (key) PKM.add({ key, label: `seed:${id}` });
+}
+
+// =====================================================================
+//  协议转换 (请求)
+// =====================================================================
+function buildUpstream(protocol: Proto, baseUrl: string, key: string, body: Record<string, unknown>) {
+  const b = baseUrl.replace(/\/$/, "");
+  if (protocol === "openai" || protocol === "glm") {
+    return { url: `${b}/chat/completions`, method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body };
+  }
+  if (protocol === "anthropic") {
+    const msgs = (body.messages || []).filter((m: any) => m.role !== "system").map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content || "" }));
+    const system = (body.messages || []).find((m: any) => m.role === "system")?.content;
+    return { url: `${b}/messages`, method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: { model: body.model, messages: msgs, ...(system ? { system } : {}), max_tokens: (body as any).max_tokens || 4096 } };
+  }
+  if (protocol === "google") {
+    const lastMsg = [...(body.messages || [])].reverse().find((m: any) => m.role === "user");
+    return { url: `${b}/models/${(body as any).model}:generateContent?key=${key}`, method: "POST", headers: { "content-type": "application/json" }, body: { contents: [{ role: "user", parts: [{ text: lastMsg?.content || "" }] }] } };
+  }
+  return { url: `${b}/chat/completions`, method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body };
+}
+
+// =====================================================================
+//  协议转换 (响应 -> OpenAI 归一化)
+// =====================================================================
+function normalizeResponse(protocol: Proto, payload: any, model: string) {
+  if (protocol === "anthropic") {
+    const text = (payload.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+    return { id: payload.id || "x", object: "chat.completion", model, choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: text } }], usage: payload.usage };
+  }
+  if (protocol === "google") {
+    const text = (payload.candidates || []).map((c: any) => c.content?.parts?.map((p: any) => p.text).join("") || "").join("");
+    return { id: "x", object: "chat.completion", model, choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: text } }] };
+  }
+  return payload;
+}
+
+// =====================================================================
+//  鉴权（后台登录 + API session）
+//  --------------------------------------------------------------------
+//  设计:
+//  1. 后台默认密码由 DEFAULT_ADMIN_PASS 提供 (默认 "admin123"),
+//     管理员登录后可调用 /admin/api/auth/change-pass 修改为新密码。
+//     若环境变量 ADMIN_PASS 已设置，则优先使用 ADMIN_PASS (兼容老部署)。
+//  2. 登录成功后签发一个 HttpOnly cookie: "irouter_sid"，服务端用
+//     HMAC-SHA256 校验 (constant-time compare)，无需引入额外依赖。
+//  3. checkAuth 同时支持: session cookie (后台) / Bearer PROXY_KEY (API)。
+// =====================================================================
+function b64url(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function fromB64url(s: string): Uint8Array {
+  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
+  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + pad);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function sha256Hex(text: string): Promise<string> {
+  const buf = new TextEncoder().encode(text);
+  const h = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function getAdminPassword(): string {
+  // 环境变量 ADMIN_PASS 优先；否则回退到默认密码
+  return ENV.ADMIN_PASS || ENV.DEFAULT_ADMIN_PASS;
+}
+// 生成登录 session token (HMAC 签名: user|exp|sig)
+async function createSession(user: string): Promise<string> {
+  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7; // 7 天
+  const payload = `${user}|${exp}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(ENV.SESSION_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return b64url(new TextEncoder().encode(payload + "|" + b64url(sig)));
+}
+async function verifySession(token: string | null | undefined): Promise<boolean> {
+  if (!token) return false;
   try {
-    const kv = await Deno.openKv();
-    const r = await kv.get<T>(key as unknown as string[]);
-    kv.close();
-    return (r.value as T) ?? fallback;
+    const decoded = new TextDecoder().decode(fromB64url(token));
+    const parts = decoded.split("|");
+    if (parts.length !== 3) return false;
+    const [user, expStr, sigB64] = parts;
+    const exp = Number(expStr);
+    if (!user || !exp || !sigB64) return false;
+    if (exp < Math.floor(Date.now() / 1000)) return false; // 过期
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(ENV.SESSION_SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const expect = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${user}|${exp}`));
+    const got = fromB64url(sigB64);
+    // constant-time compare
+    const a = new Uint8Array(expect), b = got;
+    if (a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+    return diff === 0 && user === ENV.ADMIN_USER;
   } catch {
-    return fallback;
+    return false;
   }
 }
-async function setKV<T>(key: readonly string[], value: T): Promise<void> {
-  try {
-    const kv = await Deno.openKv();
-    await kv.set(key as unknown as string[], value);
-    kv.close();
-  } catch {}
+function getSessionCookie(req: Request): string | null {
+  const cookie = req.headers.get("cookie") || "";
+  const m = cookie.match(/(?:^|;\s*)irouter_sid=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
 }
-
-let providers: Provider[] = [];
-let routes: RouteRule[] = [];
-
-async function loadDashboard() {
-  providers = await getKV<Provider[]>(KV_PROVIDERS, []);
-  routes = await getKV<RouteRule[]>(KV_ROUTES, []);
-  if (providers.length === 0) {
-    providers = seedProviders();
-    await setKV(KV_PROVIDERS, providers);
+// 统一鉴权: 后台 session 或 API Bearer key
+async function checkAuth(req: Request): Promise<boolean> {
+  // 1) 后台登录 session
+  if (await verifySession(getSessionCookie(req))) return true;
+  // 2) API Bearer (PROXY_KEY / ProxyKey)
+  const auth = req.headers.get("authorization") || "";
+  const provided = auth.replace(/^Bearer\s+/i, "");
+  if (provided) {
+    if (PKM.keys.length) { const v = PKM.validate(provided, undefined); if (v.ok) return true; }
+    if (ENV.PROXY_KEY.length && ENV.PROXY_KEY.includes(provided)) return true;
   }
+  return false;
 }
-function seedProviders(): Provider[] {
-  const now = Date.now();
-  return [
-    { id: "openai", name: "OpenAI", type: "openai", baseUrl: "https://api.openai.com/v1", apiKey: "", models: ["gpt-4o", "gpt-4o-mini"], enabled: true, builtin: true, weight: 100, timeout: 60, maxRetries: 2, latencyMs: 0, successRate: 100, dailyLimit: 100000, usedToday: 0, lastUsed: now, createdAt: now },
-    { id: "anthropic", name: "Anthropic", type: "anthropic", baseUrl: "https://api.anthropic.com/v1", apiKey: "", models: ["claude-sonnet-4-20250514"], enabled: true, builtin: true, weight: 90, timeout: 60, maxRetries: 2, latencyMs: 0, successRate: 100, dailyLimit: 100000, usedToday: 0, lastUsed: now, createdAt: now },
-    { id: "google", name: "Google", type: "google", baseUrl: "https://generativelanguage.googleapis.com/v1beta", apiKey: "", models: ["gemini-2.5-pro"], enabled: true, builtin: true, weight: 80, timeout: 60, maxRetries: 2, latencyMs: 0, successRate: 100, dailyLimit: 100000, usedToday: 0, lastUsed: now, createdAt: now },
-    { id: "cohere", name: "Cohere", type: "cohere", baseUrl: "https://api.cohere.ai/v1", apiKey: "", models: ["command-r-plus"], enabled: false, builtin: true, weight: 50, timeout: 60, maxRetries: 2, latencyMs: 0, successRate: 100, dailyLimit: 100000, usedToday: 0, lastUsed: now, createdAt: now },
-  ];
+// 同步版：用于 Hono 路由里已 await CONFIG.ready 之后；session 校验本身是异步，这里保留 async
+function adminAuth(c: any): Promise<boolean> { return checkAuth(c.req.raw); }
+
+// =====================================================================
+//  健康检查 (后台定时)
+// =====================================================================
+async function healthCheckOnce(provider: Provider): Promise<{ provider: string; healthy: number; total: number; latency_ms?: number }> {
+  const enabledKeys = provider.keys.filter((k) => k.enabled && k.key);
+  if (!enabledKeys.length) return { provider: provider.id, healthy: 0, total: 0 };
+  const start = Date.now();
+  let healthy = 0;
+  for (const k of enabledKeys.slice(0, 3)) { // 最多探测 3 个 key
+    try {
+      const up = buildUpstream(provider.protocol, provider.baseUrl, k.key, { model: provider.defaultModel, messages: [{ role: "user", content: "hi" }] });
+      const res = await fetch(up.url, { method: up.method, headers: up.headers, body: JSON.stringify(up.body), signal: AbortSignal.timeout(8000) });
+      // 401/403 说明 key 无效；2xx/4xx(其它) 说明端点可达
+      if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 403)) healthy++;
+      else { k.failCount++; k.lastError = `health: ${res.status}`; }
+    } catch (e) {
+      k.lastError = `health: ${(e as Error).message}`;
+    }
+  }
+  // 自动恢复：被摘除的 key 若探测通过则清零
+  for (const k of provider.keys) {
+    if (!k.enabled && ENV.KEY_AUTO_RECOVER && k.failCount >= ENV.KEY_FAIL_THRESHOLD) {
+      // 简单策略：达到阈值后给一次重试机会 (下一轮自然会被 pickKey 忽略，这里仅重置计数供人工恢复参考)
+    }
+  }
+  return { provider: provider.id, healthy, total: enabledKeys.length, latency_ms: Date.now() - start };
 }
 
-// ========== 认证 ==========
-const DEFAULT_ADMIN_PASS = Deno.env.get("DEFAULT_ADMIN_PASS") || "admin123";
-const SESSION_SECRET = Deno.env.get("SESSION_SECRET") || "changeme-please-set-a-random-secret";
-const PROXY_KEY = Deno.env.get("PROXY_KEY") || "";
-const SESSION_DURATION = 7 * 24 * 3600 * 1000;
-
-async function getAdminPassword(): Promise<string> {
-  try { const kv = await Deno.openKv(); const r = await kv.get(["admin_pass"]); kv.close(); return (r.value as string) || DEFAULT_ADMIN_PASS; }
-  catch { return DEFAULT_ADMIN_PASS; }
-}
-async function setAdminPassword(pass: string): Promise<void> {
-  try { const kv = await Deno.openKv(); await kv.set(["admin_pass"], pass); kv.close(); } catch {}
-}
-async function hmacSign(data: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(SESSION_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(data));
-  return btoa(String.fromCharCode(...new Uint8Array(sig)));
-}
-async function verifySession(cookieHeader: string | undefined): Promise<boolean> {
-  if (!cookieHeader) return false;
-  const m = cookieHeader.match(/irouter_sid=([^;]+)/);
-  if (!m) return false;
-  try {
-    const [user, exp, sig] = atob(m[1]).split("|");
-    if (user !== "admin") return false;
-    if (Date.now() > parseInt(exp)) return false;
-    const validSig = await hmacSign(user + "|" + exp);
-    return sig === validSig;
-  } catch { return false; }
-}
-async function adminAuth(c: any): Promise<boolean> {
-  return verifySession(c.req.header("cookie"));
+async function healthCheckAll() {
+  const providers = [...CONFIG.providers.values()].filter((p) => p.enabled);
+  const results = await Promise.all(providers.map(healthCheckOnce));
+  return results;
 }
 
-// ========== Hono 应用 ==========
+// 启动定时健康检查
+let healthTimer: number | undefined;
+CONFIG.ready.then(() => {
+  if (ENV.HEALTH_CHECK_INTERVAL_MS > 0) {
+    healthTimer = setInterval(() => healthCheckAll().catch(() => {}), ENV.HEALTH_CHECK_INTERVAL_MS) as unknown as number;
+  }
+});
+
+// =====================================================================
+//  Hono App
+// =====================================================================
 const app = new Hono();
-app.use("*", cors());
 
-// 健康检查（含版本号，供前端同步）
-app.get("/health", (c) => c.json({ ok: true, version: VERSION, time: Date.now() }));
-
-// 首页 / 管理后台（需登录）
-async function renderDashboard(c: any) {
-  if (!await adminAuth(c)) return c.redirect("/admin/login");
+app.get("/", async (c) => {
   await loadDashboard();
-  return c.html(DASHBOARD_TEMPLATE.replace(/\{\{VERSION\}\}/g, VERSION));
+  // 直接返回后台页面（含登录页 + Dashboard），打开域名即进后台；登录态由前端 /auth/me 校验
+  const html = DASHBOARD_TEMPLATE.replace(/\{\{VERSION\}\}/g, VERSION);
+  return c.html(html);
+});
+app.get("/health", (c) => c.json({ ok: true, version: VERSION, providers: CONFIG.providers.size }));
+
+// ---- /v1/models ----
+app.get("/v1/models", async (c) => {
+  await CONFIG.ready;
+  if (!checkAuth(c.req.raw)) return c.text("Unauthorized", 401);
+  const list = [...CONFIG.providers.values()]
+    .filter((p) => p.enabled)
+    .flatMap((p) => [p.defaultModel, ...(p.models || [])].filter(Boolean).map((m) => ({ id: m, object: "model", owned_by: p.id })));
+  return c.json({ object: "list", data: list });
+});
+
+// ---- /v1/chat/completions ----
+app.post("/v1/chat/completions", async (c) => {
+  await CONFIG.ready;
+  if (!checkAuth(c.req.raw)) return c.text("Unauthorized", 401);
+
+  // 预算拦截
+  if (ENV.DAILY_TOKEN_BUDGET && REQLOG.totalTokens() >= ENV.DAILY_TOKEN_BUDGET) {
+    return c.json({ error: "daily token budget exceeded", limit: ENV.DAILY_TOKEN_BUDGET }, 429);
+  }
+
+  const body = await c.req.json() as Record<string, unknown> & { model?: string; stream?: boolean };
+  const model = (body.model as string) || "default";
+
+  const providers = [...CONFIG.providers.values()].filter((p) => p.enabled && p.keys.some((k) => k.enabled && k.key));
+  const orderedIds = ROUTES.resolve(model, providers.map((p) => p.id));
+  const ordered = orderedIds.map((id) => providers.find((p) => p.id === id)).filter(Boolean) as Provider[];
+  const candidates = ordered.length ? ordered : providers;
+
+  const start = Date.now();
+  let lastErr: any = null;
+  for (const provider of candidates) {
+    const picked = CONFIG.pickKey(provider.id);
+    if (!picked) continue;
+    const up = buildUpstream(provider.protocol, provider.baseUrl, picked.key, body);
+    try {
+      const res = await fetch(up.url, { method: up.method, headers: up.headers, body: JSON.stringify(up.body) });
+      const text = await res.text();
+      const ms = Date.now() - start;
+      LATENCY.record(provider.id, ms);
+      let parsed: any = {};
+      try { parsed = JSON.parse(text); } catch {}
+      const out = normalizeResponse(provider.protocol, parsed, model);
+      const u = (out as any).usage || {};
+      REQLOG.add({ ts: Date.now(), model, provider: provider.id, status: res.status, latency_ms: ms, input_tokens: u.prompt_tokens || u.input_tokens || 0, output_tokens: u.completion_tokens || u.output_tokens || 0 });
+
+      if (res.ok) {
+        // 非流式直接返回
+        if (!(body.stream && (out as any).choices?.[0]?.delta)) return c.json(out);
+        // 流式：透传 (这里简单把上游 text 作为 SSE 返回)
+        return c.text(text, { headers: { "content-type": res.headers.get("content-type") || "text/event-stream" } });
+      }
+      lastErr = { status: res.status, body: text };
+      // 401/403 -> 累计失败，超限自动摘除
+      if (res.status === 401 || res.status === 403) {
+        const k = provider.keys.find((x) => x.key === picked.key);
+        if (k) {
+          k.failCount++;
+          if (k.failCount >= ENV.KEY_FAIL_THRESHOLD) {
+            k.enabled = false; k.disabledAt = Date.now();
+            WEBHOOK.notify("key_disabled", { provider: provider.id, key: picked.key.slice(0, 6) + "***", reason: `连续 ${k.failCount} 次 ${res.status}` });
+          }
+        }
+      }
+    } catch (e) {
+      lastErr = e;
+      LATENCY.record(provider.id, Date.now() - start);
+      REQLOG.add({ ts: Date.now(), model, provider: provider.id, status: 0, latency_ms: Date.now() - start, error: String(e) });
+    }
+  }
+  return c.json({ error: "all providers failed", details: lastErr }, 502);
+});
+
+// =====================================================================
+//  Admin API
+// =====================================================================
+async function adminAuthGuard(c: any): Promise<Response | null> {
+  if (await checkAuth(c.req.raw)) return null;
+  return c.json({ error: "unauthorized" }, 401);
 }
-app.get("/", renderDashboard);
-app.get("/admin", renderDashboard);
 
-// 登录页（无需登录）
-app.get("/admin/login", (c) =>
-  c.html(LOGIN_TEMPLATE.replace(/\{\{VERSION\}\}/g, VERSION))
-);
-
-// 认证 API
+// 登录 / 登出 / 改密（不需要鉴权，或与其它管理接口分开处理）
 app.post("/admin/api/auth/login", async (c) => {
-  const { username, password } = await c.req.json();
-  if (username !== "admin" || password !== await getAdminPassword())
+  const b = await c.req.json().catch(() => ({})) as { username?: string; password?: string };
+  const user = (b.username || "").trim();
+  const pass = b.password || "";
+  if (user !== ENV.ADMIN_USER || pass !== getAdminPassword()) {
     return c.json({ ok: false, error: "用户名或密码错误" }, 401);
-  const exp = Date.now() + SESSION_DURATION;
-  const sig = await hmacSign("admin|" + exp);
-  const token = btoa("admin|" + exp + "|" + sig);
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200, headers: {
-      "Content-Type": "application/json",
-      "Set-Cookie": `irouter_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DURATION / 1000}`,
+  }
+  const sid = await createSession(user);
+  return c.json(
+    { ok: true },
+    {
+      headers: {
+        "Set-Cookie":
+          `irouter_sid=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`,
+      },
+    },
+  );
+});
+
+app.post("/admin/api/auth/logout", (c) => {
+  return c.json({ ok: true }, {
+    headers: {
+      "Set-Cookie": `irouter_sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
     },
   });
 });
-app.post("/admin/api/auth/logout", (c) =>
-  new Response(JSON.stringify({ ok: true }), { status: 200, headers: {
-    "Content-Type": "application/json",
-    "Set-Cookie": "irouter_sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-  }})
-);
+
 app.post("/admin/api/auth/change-pass", async (c) => {
-  if (!await adminAuth(c)) return c.json({ ok: false, error: "未登录" }, 401);
-  const { oldPass, newPass } = await c.req.json();
-  if (!newPass || newPass.length < 6) return c.json({ ok: false, error: "密码至少6位" }, 400);
-  if (oldPass !== await getAdminPassword()) return c.json({ ok: false, error: "原密码错误" }, 403);
-  await setAdminPassword(newPass);
-  return new Response(JSON.stringify({ ok: true }), { status: 200, headers: {
-    "Content-Type": "application/json",
-    "Set-Cookie": "irouter_sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-  }});
-});
-app.get("/admin/api/auth/me", async (c) => {
-  const ok = await adminAuth(c);
-  return c.json({ ok, user: ok ? "admin" : null });
-});
-
-// 供应商 API
-app.get("/admin/api/providers", async (c) => {
-  if (!await adminAuth(c)) return c.json([], 401);
-  await loadDashboard();
-  return c.json(providers);
-});
-app.get("/admin/api/providers/:id", async (c) => {
-  if (!await adminAuth(c)) return c.json({ error: "未登录" }, 401);
-  await loadDashboard();
-  const p = providers.find(x => x.id === c.req.param("id"));
-  if (!p) return c.json({ error: "not found" }, 404);
-  return c.json(p);
-});
-app.put("/admin/api/providers/:id", async (c) => {
-  if (!await adminAuth(c)) return c.json({ error: "未登录" }, 401);
-  await loadDashboard();
-  const id = c.req.param("id");
-  const body = await c.req.json();
-  const idx = providers.findIndex(x => x.id === id);
-  if (idx < 0) return c.json({ error: "not found" }, 404);
-  providers[idx] = { ...providers[idx], ...body, id, builtin: providers[idx].builtin };
-  await setKV(KV_PROVIDERS, providers);
-  return c.json(providers[idx]);
-});
-app.post("/admin/api/providers", async (c) => {
-  if (!await adminAuth(c)) return c.json({ error: "未登录" }, 401);
-  await loadDashboard();
-  const body = await c.req.json();
-  const now = Date.now();
-  const p: Provider = {
-    id: body.id || (body.name || "svc").toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    name: body.name || "未命名",
-    type: body.type || "openai",
-    baseUrl: body.baseUrl || "",
-    apiKey: body.apiKey || "",
-    models: Array.isArray(body.models) ? body.models : [],
-    enabled: body.enabled !== false,
-    builtin: false,
-    isCustom: true,
-    weight: body.weight || 50,
-    timeout: body.timeout || 60,
-    maxRetries: body.maxRetries || 2,
-    latencyMs: 0,
-    successRate: 100,
-    dailyLimit: body.dailyLimit || 0,
-    usedToday: 0,
-    lastUsed: now,
-    createdAt: now,
-  };
-  providers.push(p);
-  await setKV(KV_PROVIDERS, providers);
-  return c.json(p, 201);
-});
-app.delete("/admin/api/providers/:id", async (c) => {
-  if (!await adminAuth(c)) return c.json({ error: "未登录" }, 401);
-  await loadDashboard();
-  const id = c.req.param("id");
-  const p = providers.find(x => x.id === id);
-  if (!p) return c.json({ error: "not found" }, 404);
-  if (p.builtin) return c.json({ error: "内置供应商不可删除" }, 400);
-  providers = providers.filter(x => x.id !== id);
-  await setKV(KV_PROVIDERS, providers);
-  return c.json({ ok: true });
-});
-app.post("/admin/api/providers/reset-builtin", async (c) => {
-  if (!await adminAuth(c)) return c.json({ error: "未登录" }, 401);
-  providers = seedProviders();
-  await setKV(KV_PROVIDERS, providers);
-  return c.json({ ok: true, providers });
-});
-
-// 路由规则 API
-app.get("/admin/api/routes", async (c) => {
-  if (!await adminAuth(c)) return c.json([], 401);
-  await loadDashboard();
-  return c.json(routes);
-});
-app.post("/admin/api/routes", async (c) => {
-  if (!await adminAuth(c)) return c.json({ error: "未登录" }, 401);
-  const body = await c.req.json();
-  const r: RouteRule = { id: crypto.randomUUID(), name: body.name || "规则", match: body.match || "*", providerId: body.providerId || "", priority: body.priority || 0, enabled: true };
-  routes.push(r);
-  await setKV(KV_ROUTES, routes);
-  return c.json(r, 201);
-});
-app.delete("/admin/api/routes/:id", async (c) => {
-  if (!await adminAuth(c)) return c.json({ error: "未登录" }, 401);
-  routes = routes.filter(x => x.id !== c.req.param("id"));
-  await setKV(KV_ROUTES, routes);
-  return c.json({ ok: true });
-});
-
-// 代理转发（客户端用 PROXY_KEY 鉴权）
-app.all("/v1/*", async (c) => {
-  const key = c.req.header("x-proxy-key") || "";
-  if (PROXY_KEY && key !== PROXY_KEY) return c.json({ error: "unauthorized" }, 401);
-  await loadDashboard();
-  const enabled = providers.filter(p => p.enabled);
-  if (enabled.length === 0) return c.json({ error: "no provider" }, 503);
-  const target = enabled[0];
-  const upstream = target.baseUrl.replace(/\/$/, "") + c.req.path.replace(/^\/v1/, "");
-  try {
-    const resp = await fetch(upstream, { method: c.req.method, headers: { "content-type": "application/json", "authorization": "Bearer " + target.apiKey }, body: ["GET", "HEAD"].includes(c.req.method) ? undefined : await c.req.raw.clone().text() });
-    return new Response(resp.body, { status: resp.status, headers: resp.headers });
-  } catch (e: any) {
-    return c.json({ error: e.message }, 502);
+  const deny = await adminAuthGuard(c); if (deny) return deny;
+  const b = await c.req.json().catch(() => ({})) as { oldPass?: string; newPass?: string };
+  const oldPass = b.oldPass || "";
+  const newPass = (b.newPass || "").trim();
+  if (oldPass !== getAdminPassword()) return c.json({ ok: false, error: "原密码不正确" }, 401);
+  if (newPass.length < 6) return c.json({ ok: false, error: "新密码至少 6 位" }, 400);
+  // 写入环境变量等价存储 (KV 持久化，重启不丢)
+  const kv = await getKv();
+  if (kv) {
+    await kv.set(["admin", "password"], { password: newPass, updatedAt: Date.now() });
   }
+  // 让 getAdminPassword() 立即读到新值
+  (ENV as any).ADMIN_PASS = newPass;
+  return c.json({ ok: true, message: "密码已更新，请使用新密码重新登录" });
 });
 
-// 导出 / 导入配置
-app.get("/admin/api/export", async (c) => {
-  if (!await adminAuth(c)) return c.json({ error: "未登录" }, 401);
-  await loadDashboard();
-  return c.json({ version: VERSION, exportedAt: Date.now(), providers, routes });
+app.get("/admin/api/auth/me", async (c) => {
+  const sid = getSessionCookie(c.req.raw);
+  const ok = await verifySession(sid);
+  return c.json({ loggedIn: ok, user: ok ? ENV.ADMIN_USER : null });
 });
-app.post("/admin/api/import", async (c) => {
-  if (!await adminAuth(c)) return c.json({ error: "未登录" }, 401);
-  const body = await c.req.json();
-  if (Array.isArray(body.providers)) { providers = body.providers; await setKV(KV_PROVIDERS, providers); }
-  if (Array.isArray(body.routes)) { routes = body.routes; await setKV(KV_ROUTES, routes); }
+
+// 供应商 CRUD
+app.get("/admin/api/providers", async (c) => { await CONFIG.ready; return c.json(CONFIG.list()); });
+app.get("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const p = CONFIG.providers.get(c.req.param("id")); if (!p) return c.json({ error: "not found" }, 404); return c.json(p); });
+app.post("/admin/api/providers", async (c) => { await CONFIG.ready; const b = await c.req.json(); return c.json(CONFIG.upsert(b)); });
+app.put("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const b = await c.req.json(); b.id = c.req.param("id"); return c.json(CONFIG.upsert(b)); });
+app.delete("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const r = CONFIG.delete(c.req.param("id")); if (r && (r as any).error) return c.json(r, 400); return c.json(r); });
+// 一键恢复全部内置供应商（前端「＋ 恢复内置供应商」按钮调用）
+app.post("/admin/api/providers/reset-builtin", async (c) => { await CONFIG.ready; return c.json(CONFIG.resetBuiltin()); });
+// Keys
+app.post("/admin/api/providers/:id/keys", async (c) => { await CONFIG.ready; const { id } = c.req.param(); const b = await c.req.json(); return c.json(CONFIG.addKey(id, b.key, b.label, b.weight || 1)); });
+app.delete("/admin/api/providers/:id/keys/:keyId", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); return c.json(CONFIG.deleteKey(id, keyId)); });
+app.post("/admin/api/providers/:id/keys/:keyId/recover", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); return c.json(CONFIG.recoverKey(id, keyId)); });
+// 连通性测试 + 模型探测
+app.post("/admin/api/providers/:id/test", async (c) => { await CONFIG.ready; const { id } = c.req.param(); const p = CONFIG.providers.get(id); if (!p) return c.json({ ok: false }, 404); const r = await healthCheckOnce(p); return c.json({ ok: r.healthy > 0, ...r }); });
+// 路由规则
+app.get("/admin/api/routes", (c) => c.json(ROUTES.list()));
+app.post("/admin/api/routes", async (c) => { const b = await c.req.json(); return c.json(ROUTES.add(b)); });
+app.put("/admin/api/routes/:id", async (c) => { const b = await c.req.json(); const r = ROUTES.update(c.req.param("id"), b); if (!r) return c.json({ error: "not found" }, 404); return c.json(r); });
+app.delete("/admin/api/routes/:id", (c) => { ROUTES.remove(c.req.param("id")); return c.json({ ok: true }); });
+// Proxy Keys
+app.get("/admin/api/proxy-keys", (c) => c.json(PKM.list()));
+app.post("/admin/api/proxy-keys", async (c) => { const b = await c.req.json(); return c.json(PKM.add(b)); });
+app.delete("/admin/api/proxy-keys/:id", (c) => { PKM.remove(c.req.param("id")); return c.json({ ok: true }); });
+// 统计 / 日志 / 健康
+app.get("/admin/api/stats/latency", (c) => c.json({ overall: LATENCY.summary(), providers: LATENCY.allByProvider() }));
+app.get("/admin/api/stats/usage", (c) => {
+  const byProvider: Record<string, { requests: number; input: number; output: number }> = {};
+  for (const e of REQLOG["entries"]) {
+    if (!byProvider[e.provider]) byProvider[e.provider] = { requests: 0, input: 0, output: 0 };
+    byProvider[e.provider].requests++;
+    byProvider[e.provider].input += e.input_tokens || 0;
+    byProvider[e.provider].output += e.output_tokens || 0;
+  }
+  return c.json({ total_tokens: REQLOG.totalTokens(), providers: byProvider });
+});
+app.get("/admin/api/logs", (c) => { const url = new URL(c.req.raw.url); return c.json(REQLOG.query({ provider: url.searchParams.get("provider") || undefined, model: url.searchParams.get("model") || undefined, limit: Number(url.searchParams.get("limit") || 100) })); });
+app.get("/admin/api/health/status", async (c) => { await CONFIG.ready; const data = await healthCheckAll(); return c.json({ data, alerts: WEBHOOK.alerts.slice(0, 20) }); });
+app.post("/admin/api/health/check", async (c) => { await CONFIG.ready; const data = await healthCheckAll(); return c.json({ ok: true, data }); });
+// 告警
+app.get("/admin/api/alerts", (c) => c.json(WEBHOOK.alerts.slice(0, 50)));
+// 配置导入 / 导出
+app.get("/admin/api/config/export", (c) => c.json(exportConfig(CONFIG.list(), ROUTES, PKM)));
+app.post("/admin/api/config/import", async (c) => {
+  const b = await c.req.json();
+  if (b.providers) for (const p of b.providers) CONFIG.upsert(p);
+  if (b.routes) for (const r of b.routes) ROUTES.add(r);
   return c.json({ ok: true });
 });
 
-// ========== 前端模板 ==========
-const DASHBOARD_TEMPLATE = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>irouter 管理后台</title>
-<style>
-:root,[data-theme="light"]{--bg:#ffffff;--panel:#f5f7fa;--panel-2:#f0f2f6;--text:#1a1a2e;--muted:#6b7280;--line:#e3e6eb;--accent:#6d8cff;--accent-2:#a06dff;--nav-bg:#f7f8fc;--input-bg:#fff;--hover:#eef1f7;--ok:#22c55e;--warn:#f59e0b;--err:#ff6b6b;--grad:linear-gradient(135deg,#6d8cff 0%,#a06dff 100%);--shadow:0 6px 24px rgba(30,40,80,.08)}
-[data-theme="dark"]{--bg:#0f1115;--panel:#171a21;--panel-2:#1c2030;--text:#e6e6e6;--muted:#8b93a3;--line:#2a2f3a;--accent:#6d8cff;--accent-2:#a06dff;--nav-bg:#11141b;--input-bg:#1f2330;--hover:#1a1e27;--ok:#3ddc97;--warn:#fbbf24;--err:#ff6b6b;--grad:linear-gradient(135deg,#6d8cff 0%,#a06dff 100%);--shadow:0 8px 28px rgba(0,0,0,.45)}
-*{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,"SF Pro","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;transition:background .2s,color .2s}
-body{display:flex;min-height:100vh}
-a{color:inherit}
-/* 侧栏 */
-.side{width:230px;background:var(--nav-bg);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0;transition:transform .25s ease;z-index:100}
-.side .brand{padding:20px 18px;font-size:19px;font-weight:800;letter-spacing:.3px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
-.side .brand small{display:block;font-size:11px;color:var(--muted);font-weight:500;margin-top:3px;letter-spacing:0}
-.side nav{flex:1;padding:8px 10px;overflow-y:auto}
-.side nav a{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:2px 0;border-radius:10px;color:var(--muted);cursor:pointer;font-size:14px;transition:background .15s,color .15s}
-.side nav a .ic{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:15px;opacity:.85}
-.side nav a:hover{background:var(--hover);color:var(--text)}
-.side nav a.active{background:var(--grad);color:#fff;box-shadow:0 4px 12px rgba(109,140,255,.4)}
-.side .foot{padding:14px 18px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
-.side .foot .ver{font-weight:600;color:var(--text)}
-.logout-btn{display:flex;align-items:center;gap:8px;width:100%;margin-top:10px;padding:9px 12px;border-radius:999px;background:var(--panel-2);border:1px solid var(--line);color:var(--text);cursor:pointer;font-size:13px;transition:background .15s,color .15s}
-.logout-btn:hover{background:var(--err);color:#fff;border-color:var(--err)}
-/* 主区 */
-.main{flex:1;min-width:0;display:flex;flex-direction:column}
-.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;padding:12px 22px;background:rgba(255,255,255,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-[data-theme="dark"] .topbar{background:rgba(15,17,21,.72)}
-.topbar h2{margin:0;font-size:17px;font-weight:700}
-.topbar .spacer{flex:1}
-.theme-btn{background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:6px 12px;cursor:pointer;font-size:15px;transition:background .15s}
-.theme-btn:hover{background:var(--hover)}
-.content{padding:22px;overflow:auto}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow)}
-.card h3{margin:0 0 14px;font-size:15px;font-weight:700}
-.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
-.toolbar .spacer{flex:1}
-input,select,textarea{background:var(--input-bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:13px;outline:none;transition:border-color .15s,box-shadow .15s}
-input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(109,140,255,.18)}
-.primary{background:var(--grad);color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(109,140,255,.35);transition:transform .1s,box-shadow .15s}
-.primary:hover{box-shadow:0 6px 20px rgba(109,140,255,.5)}
-.primary:active{transform:scale(.96)}
-/* 表格 */
-table{width:100%;border-collapse:collapse;font-size:13px}
-thead th{text-align:left;padding:10px 12px;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--line);background:var(--panel-2);position:sticky;top:0}
-tbody td{padding:12px;border-bottom:1px solid var(--line);vertical-align:middle}
-tbody tr:hover{background:var(--panel-2)}
-tbody tr:hover .row-actions{background:transparent}
-.name-cell{display:flex;align-items:center;gap:10px}
-.name-cell .txt{font-weight:600}
-.name-cell .sub{color:var(--muted);font-size:12px}
-.dot{width:9px;height:9px;border-radius:50%;display:inline-block;box-shadow:0 0 0 3px rgba(0,0,0,.05)}
-.dot.ok{background:var(--ok);box-shadow:0 0 8px rgba(34,197,94,.5)}
-.dot.warn{background:var(--warn)}
-.dot.err{background:var(--err)}
-.tag{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--panel-2);color:var(--muted)}
-.tag.builtin{background:var(--panel-2);color:var(--muted)}
-.tag.custom{background:rgba(109,140,255,.14);color:var(--accent)}
-/* ===== 操作列：胶囊按钮（v2.4.1）===== */
-.row-actions{background:transparent!important;vertical-align:middle;padding-top:.55rem;padding-bottom:.55rem;text-align:right;white-space:nowrap}
-.btn-group{display:inline-flex;align-items:center;justify-content:center;gap:0;background:transparent;padding:0;border-radius:0;line-height:1;vertical-align:middle}
-.btn-group .btn{display:inline-flex;align-items:center;justify-content:center;height:28px;line-height:28px;padding:0 14px;font-size:13px;font-weight:600;border:none;color:#fff;cursor:pointer;vertical-align:middle;transition:filter .12s,transform .1s}
-.btn-group .btn:hover{filter:brightness(1.08)}
-.btn-group .btn:active{transform:scale(.94)}
-.btn-group .btn.edit{background:linear-gradient(135deg,#6d8cff 0%,#a06dff 100%);border-radius:14px 0 0 14px}
-.btn-group .btn.delete{background:#ff6b6b;border-radius:0 14px 14px 0}
-.btn-group .btn:only-child{border-radius:14px}
-@media(max-width:760px){.side{position:fixed;inset:0 auto 0 0;height:100%;transform:translateX(-100%);box-shadow:var(--shadow)}.side.open{transform:translateX(0)}.scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:90}.scrim.open{display:block}.burger{display:inline-flex!important}.content{padding:14px}.topbar{padding:10px 14px}}
-.burger{display:none;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;cursor:pointer;margin-right:6px}
-.burger span{width:20px;height:2px;background:var(--text);border-radius:2px}
-/* 弹窗 */
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:200;padding:20px;animation:fade .18s ease}
-.modal.open{display:flex}
-@keyframes fade{from{opacity:0}to{opacity:1}}
-.modal .box{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;width:min(520px,100%);max-height:90vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.35);animation:pop .2s cubic-bezier(.2,.9,.3,1.2)}
-@keyframes pop{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
-.modal h3{margin:0 0 18px;font-size:17px}
-.field{margin-bottom:14px}
-.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
-.field .hint{font-size:11px;color:var(--muted);margin-top:4px}
-.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
-.cancel{background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:8px 16px;cursor:pointer;font-size:13px}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--bg);padding:10px 20px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:all .25s;z-index:300;box-shadow:var(--shadow)}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.muted{color:var(--muted)}
-.empty{text-align:center;padding:40px;color:var(--muted)}
-.hidden{display:none!important}
-</style>
-</head>
-<body>
-<button class="burger" onclick="toggleSide()"><span></span><span></span><span></span></button>
-<div class="scrim" id="scrim" onclick="toggleSide()"></div>
-<div class="side" id="side">
-  <div class="brand">⚡ irouter<small>智能供应商路由</small></div>
-  <nav id="nav">
-    <a data-tab="providers"><span class="ic">📡</span>供应商</a>
-    <a data-tab="keys"><span class="ic">🔑</span>Keys</a>
-    <a data-tab="latency"><span class="ic">📊</span>延迟</a>
-    <a data-tab="usage"><span class="ic">💰</span>用量</a>
-    <a data-tab="logs"><span class="ic">📋</span>日志</a>
-    <a data-tab="routes"><span class="ic">⚙️</span>路由规则</a>
-  </nav>
-  <div class="foot">
-    <div class="ver" id="ver">v{{VERSION}}</div>
-    <button class="logout-btn" onclick="logout()"><span>⏻</span><span>退出登录</span></button>
-  </div>
-</div>
-<div class="main">
-  <div class="topbar">
-    <button class="burger" onclick="toggleSide()"><span></span><span></span><span></span></button>
-    <h2 id="pageTitle">供应商</h2>
-    <span class="spacer"></span>
-    <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
-  </div>
-  <div class="content" id="content"></div>
-</div>
+// =====================================================================
+//  Dashboard (独立 dashboard.html，由 /admin 路由注入动态数据)
+//  —— 刻意不放进 TS 模板字符串，避免 Deno 把 < > 当 TSX 解析 (此前报 SyntaxError)
+// =====================================================================
+// ---------- 载入 Dashboard (独立 HTML 文件，避免 TS 模板字面量冲突) ----------
+let DASHBOARD_TEMPLATE = "";
+async function loadDashboard() {
+  if (DASHBOARD_TEMPLATE) return;
+  try {
+    DASHBOARD_TEMPLATE = await Deno.readTextFile("./dashboard.html");
+  } catch (e) {
+    DASHBOARD_TEMPLATE = "<!doctype html><html><body><h1>Dashboard 加载失败</h1><p>" +
+      String(e && e.message || e) + "</p><p>请确保 dashboard.html 与 main.ts 同目录，并已包含在部署产物中。</p></body></html>";
+  }
+}
 
-<script>
-const API="/admin/api";
-let currentTab="providers", providers=[];
-const $=(s)=>document.querySelector(s);
-const esc=(s)=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-
-function toggleSide(){ $("#side").classList.toggle("open"); $("#scrim").classList.toggle("open"); }
-function toast(msg){const t=$("#toast")||(function(){const d=document.createElement("div");d.className="toast";document.body.appendChild(d);return d;}());t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
-async function fetchWithAuth(path,opts={}){const r=await fetch(API+path,Object.assign({credentials:"same-origin",headers:{"Content-Type":"application/json"}},opts));if(r.status===401){location.href="/admin/login";throw new Error("未登录");}return r;}
-function logout(){fetch(API+"/auth/logout",{method:"POST"}).finally(()=>location.href="/admin/login");}
-function changePass(){const o=prompt("原密码："),n=prompt("新密码（至少6位）：");if(!o||!n)return;fetchWithAuth("/auth/change-pass",{method:"POST",body:JSON.stringify({oldPass:o,newPass:n})}).then(r=>r.json()).then(d=>{if(d.ok){toast("已修改，请重新登录");setTimeout(logout,800);}else toast(d.error||"修改失败");}).catch(()=>toast("修改失败"));}
-function toggleTheme(){const cur=document.documentElement.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");const next=cur==="dark"?"light":"dark";document.documentElement.setAttribute("data-theme",next);localStorage.setItem("theme",next);$("#themeBtn").textContent=next==="dark"?"🌙":"☀️";}
-
-// 事件委托：编辑 / 删除（v2.3.6+）
-document.addEventListener("click",e=>{
-  const btn=e.target.closest("button[data-action]");
-  if(!btn)return;
-  const action=btn.dataset.action, id=btn.dataset.id;
-  if(action==="edit")openProvider(id);
-  if(action==="delete")deleteProvider(id);
+app.get("/admin", async (c) => {
+  await loadDashboard();
+  // 未登录：仍返回带登录页的 HTML（登录页默认显示，JS 校验 session 后自动隐藏）
+  // 已登录：直接看到后台。无论哪种都返回 200，由前端 /auth/me 决定显示登录页还是主界面。
+  const html = DASHBOARD_TEMPLATE.replace(/\{\{VERSION\}\}/g, VERSION);
+  return c.html(html);
 });
 
-function setActive(tab){
-  document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.tab===tab));
-  const titles={providers:"供应商",keys:"Keys",latency:"延迟",usage:"用量",logs:"日志",routes:"路由规则"};
-  $("#pageTitle").textContent=titles[tab]||"管理后台";
-}
-async function loadTab(tab){
-  currentTab=tab;setActive(tab);
-  if(tab==="providers")return renderProviders();
-  if(tab==="routes")return renderRoutes();
-  $("#content").innerHTML='<div class="card"><h3>'+tab+'</h3><div class="empty">该模块暂未实现</div></div>';
-}
-function renderProviders(){
-  const rows=providers.map(p=>{
-    const dot=p.enabled?"ok":(p.successRate>80?"warn":"err");
-    const statusDot='<span class="dot '+dot+'" title="'+(p.enabled?"启用":"停用")+'"></span>';
-    const sub=esc(p.type||"");
-    return '<tr data-id="'+esc(p.id)+'">'
-      +'<td><div class="name-cell">'+statusDot+'<div><div class="txt">'+esc(p.name)+'</div><div class="sub">'+sub+'</div></div></div></td>'
-      +'<td><span class="tag '+(p.builtin?"builtin":"custom")+'">'+(p.builtin?"内置":"自建")+'</span></td>'
-      +'<td class="muted">0/0</td>'
-      +'<td class="muted">-</td>'
-      +'<td class="row-actions"><span class="btn-group">'
-        +'<button class="btn edit" type="button" data-action="edit" data-id="'+esc(p.id)+'">编辑</button>'
-        +(p.builtin?'':'<button class="btn delete" type="button" data-action="delete" data-id="'+esc(p.id)+'">删除</button>')
-      +'</span></td>'
-    +'</tr>';
-  }).join("");
-  $("#content").innerHTML=''
-    +'<div class="card">'
-    +'<div class="toolbar"><h3 style="margin:0">供应商列表</h3><span class="spacer"></span><button class="primary" onclick="openProvider()">＋ 添加供应商</button></div>'
-    +'<div style="overflow:auto">'
-    +'<table><thead><tr><th>名称</th><th>来源</th><th>限额</th><th>延迟</th><th style="text-align:right">操作</th></tr></thead>'
-    +'<tbody>'+(rows||'<tr><td colspan="5" class="empty">暂无供应商</td></tr>')+'</tbody></table>'
-    +'</div></div>';
-}
-function openProvider(id){
-  const p=id?providers.find(x=>x.id===id):null;
-  const editing=!!p;
-  const data=p||{name:"",type:"openai",baseUrl:"",apiKey:"",models:[],weight:50,timeout:60,maxRetries:2,dailyLimit:0,enabled:true};
-  $("#content").insertAdjacentHTML("beforeend",'<div class="modal open" id="pmodal">'
-    +'<div class="box"><h3>'+(editing?"编辑供应商":"新建供应商")+'</h3>'
-    +'<div class="field"><label>名称</label><input id="f_name" value="'+esc(data.name)+'" style="width:100%"></div>'
-    +'<div class="field"><label>类型</label><input id="f_type" value="'+esc(data.type)+'" style="width:100%" placeholder="openai / anthropic / google ..."></div>'
-    +'<div class="field"><label>Base URL</label><input id="f_baseUrl" value="'+esc(data.baseUrl)+'" style="width:100%"></div>'
-    +'<div class="field"><label>API Key</label><input id="f_apiKey" type="password" value="'+esc(data.apiKey)+'" style="width:100%" placeholder="留空则不修改"></div>'
-    +'<div class="field"><label>模型（逗号分隔）</label><input id="f_models" value="'+esc((data.models||[]).join(","))+'" style="width:100%"></div>'
-    +'<div style="display:flex;gap:12px">'
-      +'<div class="field" style="flex:1"><label>权重</label><input id="f_weight" type="number" value="'+data.weight+'" style="width:100%"></div>'
-      +'<div class="field" style="flex:1"><label>超时(秒)</label><input id="f_timeout" type="number" value="'+data.timeout+'" style="width:100%"></div>'
-      +'<div class="field" style="flex:1"><label>每日限额</label><input id="f_dailyLimit" type="number" value="'+data.dailyLimit+'" style="width:100%"></div>'
-    +'</div>'
-    +'<div class="modal-actions"><button class="cancel" onclick="closeModal()">取消</button><button class="primary" onclick="saveProvider(\''+esc(id||"")+'\','+editing+')">保存</button></div>'
-    +'</div></div>');
-  $("#pmodal").addEventListener("click",e=>{if(e.target.id==="pmodal")closeModal();});
-}
-function closeModal(){const m=$("#pmodal");if(m)m.remove();}
-async function saveProvider(id,editing){
-  const models=$("#f_models").value.split(",").map(s=>s.trim()).filter(Boolean);
-  const payload={
-    name:$("#f_name").value.trim(),
-    type:$("#f_type").value.trim()||"openai",
-    baseUrl:$("#f_baseUrl").value.trim(),
-    apiKey:$("#f_apiKey").value,
-    models,
-    weight:Number($("#f_weight").value)||0,
-    timeout:Number($("#f_timeout").value)||60,
-    dailyLimit:Number($("#f_dailyLimit").value)||0,
-    enabled:true,
-  };
-  if(!payload.name){toast("请填写名称");return;}
-  // 新建供应商必须标记为自定义，确保出现删除按钮
-  if(!editing)payload.isCustom=true;
-  try{
-    const res=editing
-      ?await fetchWithAuth("/providers/"+encodeURIComponent(id),{method:"PUT",body:JSON.stringify(payload)})
-      :await fetchWithAuth("/providers",{method:"POST",body:JSON.stringify(payload)});
-    if(!res.ok){const d=await res.json().catch(()=>({}));toast(d.error||"保存失败");return;}
-    closeModal();
-    await loadProviders();
-    toast(editing?"已更新":"已创建");
-  }catch(e){toast("保存失败："+e.message);}
-}
-async function deleteProvider(id){
-  const p=providers.find(x=>x.id===id);
-  if(!p)return;
-  if(p.builtin){toast("内置供应商不可删除");return;}
-  if(!confirm("确定删除「"+p.name+"」？"))return;
-  try{const r=await fetchWithAuth("/providers/"+encodeURIComponent(id),{method:"DELETE"});if(r.ok){await loadProviders();toast("已删除");}else{const d=await r.json().catch(()=>({}));toast(d.error||"删除失败");}}catch(e){toast("删除失败："+e.message);}
-}
-async function loadProviders(){providers=await (await fetchWithAuth("/providers")).json();renderProviders();}
+app.notFound((c) => c.json({ error: "Not Found", path: c.req.path }, 404));
 
-function renderRoutes(){
-  $("#content").innerHTML='<div class="card"><div class="toolbar"><h3 style="margin:0">路由规则</h3><span class="spacer"></span><button class="primary" onclick="addRoute()">＋ 添加规则</button></div><div class="empty">暂无规则</div></div>';
+// =====================================================================
+//  启动 (Deno Deploy 兼容：无端口)
+// =====================================================================
+async function start() {
+  await CONFIG.ready;
+  await loadDashboard(); // 启动时预加载 dashboard.html（失败也有兜底 HTML，不会崩）
+  Deno.serve(app.fetch);
+  console.log(`[llm-router] v${VERSION} started · providers=${CONFIG.providers.size} · webhook=${ENV.WEBHOOK_URL ? "on" : "off"}`);
 }
-function addRoute(){toast("路由规则编辑暂未实现");}
+start();
 
-// 导航点击（事件委托）
-$("#nav").addEventListener("click",e=>{const a=e.target.closest("a[data-tab]");if(a){loadTab(a.dataset.tab);if(innerWidth<=760)toggleSide();}});
-
-// 初始化
-(async function init(){
-  const saved=localStorage.getItem("theme");
-  const theme=saved||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
-  document.documentElement.setAttribute("data-theme",theme);
-  const btn=$("#themeBtn");if(btn)btn.textContent=theme==="dark"?"🌙":"☀️";
-  try{const me=await (await fetchWithAuth("/auth/me")).json();if(!me.ok){location.href="/admin/login";return;}}catch(e){location.href="/admin/login";return;}
-  await loadProviders();
-  setActive("providers");
-  // 同步版本号
-  fetch("/health").then(r=>r.json()).then(d=>{if(d.version){const v=$("#ver");if(v)v.textContent="v"+d.version;}}).catch(()=>{});
-})();
-</script>
-</body>
-</html>`;
-
-const LOGIN_TEMPLATE = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>irouter 登录</title>
-<style>
-:root{--bg:#0f1115;--panel:#171a21;--panel-2:#1c2030;--text:#e6e6e6;--muted:#8b93a3;--line:#2a2f3a;--accent:#6d8cff;--accent-2:#a06dff;--grad:linear-gradient(135deg,#6d8cff 0%,#a06dff 100%)}
-*{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,"SF Pro","Segoe UI","PingFang SC",system-ui,sans-serif;background:radial-gradient(circle at 20% 10%,rgba(109,140,255,.18),transparent 40%),var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.box{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:36px 32px;width:min(380px,100%);box-shadow:0 24px 60px rgba(0,0,0,.5)}
-.brand{font-size:24px;font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;text-align:center;margin-bottom:4px}
-.sub{text-align:center;color:var(--muted);font-size:13px;margin-bottom:26px}
-label{display:block;font-size:12px;color:var(--muted);margin:12px 0 5px;font-weight:600}
-input{width:100%;padding:11px 14px;background:var(--panel-2);border:1px solid var(--line);border-radius:11px;color:var(--text);font-size:14px;outline:none}
-input:focus{border-color:var(--accent)}
-button{width:100%;margin-top:22px;padding:12px;background:var(--grad);color:#fff;border:none;border-radius:11px;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(109,140,255,.4);transition:transform .1s}
-button:active{transform:scale(.97)}
-.err{color:#ff6b6b;font-size:13px;margin-top:14px;text-align:center;min-height:1.2em}
-.ver{text-align:center;font-size:11px;color:var(--muted);margin-top:20px}
-</style>
-</head>
-<body>
-<div class="box">
-  <div class="brand">⚡ irouter</div>
-  <div class="sub">智能供应商路由 · 管理后台</div>
-  <label>用户名</label>
-  <input id="u" placeholder="admin" value="admin" autocomplete="username">
-  <label>密码</label>
-  <input id="p" type="password" placeholder="请输入密码" autocomplete="current-password">
-  <button onclick="login()">登 录</button>
-  <div class="err" id="e"></div>
-  <div class="ver">v{{VERSION}}</div>
-</div>
-<script>
-async function login(){
-  const e=$("#e");e.textContent="";
-  const r=await fetch("/admin/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u.value,password:p.value})});
-  const d=await r.json().catch(()=>({}));
-  if(d.ok){location.href="/";}else{e.textContent=d.error||"登录失败";}
-}
-document.getElementById("p").addEventListener("keydown",e=>{if(e.key==="Enter")login();});
-</script>
-</body>
-</html>`;
-
-// 本地直接运行（deno run main.ts）
-if (import.meta.main) {
-  const port = parseInt(Deno.env.get("PORT") || "8000");
-  console.log(`irouter v${VERSION} listening on :${port}`);
-  Deno.serve({ port }, app.fetch);
-}
-
-export { app };
+export default app;

@@ -1,10 +1,10 @@
-# 测试/验证脚本不进部署包
-*.test.ts
-*.spec.ts
+# 排除测试脚本与验证工具（不打入部署包）
+*.cjs
+test_*.cjs
 *_test.cjs
-*_test.js
-verify*.cjs
-verify*.js
-pack.cjs
-struct_probe.cjs
-__checks__
+verify_*.cjs
+e2e.cjs
+package.json
+package-lock.json
+node_modules/
+README_INTERNAL.md
