@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.4.8";
+const VERSION = "2.4.9";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -69,6 +69,7 @@ const BUILTIN: Record<string, BuiltinDef> = {
 };
 
 // ---------- 类型 ----------
+type KvKey = readonly (string | number | bigint | boolean | Uint8Array)[];
 interface ApiKey { id: string; key: string; label?: string; weight: number; enabled: boolean; failCount: number; lastError?: string; disabledAt?: number; }
 interface Provider { id: string; name: string; protocol: Proto; baseUrl: string; defaultModel: string; models: string[]; keys: ApiKey[]; enabled: boolean; isCustom: boolean; }
 interface RouteRule { id: string; pattern: string; providers: string[]; } // pattern 支持 * 通配
@@ -77,12 +78,14 @@ interface LogEntry { ts: number; model: string; provider: string; status: number
 interface AlertEntry { ts: number; event: string; provider?: string; key?: string; reason?: string; }
 
 // ---------- KV (懒加载) ----------
-let _kv: Deno.Kv | null | undefined = undefined;
+// 用类型别名引用 Deno KV 接口（避免依赖具体命名空间导出，兼容不同 Deno 版本）
+type KV = DenoKv;
+let _kv: KV | null | undefined = undefined;
 // 存储模式：'kv' = Deno KV 持久化可用；'memory' = 仅内存(重启会丢失)，前端据此告警
 let STORAGE_MODE: "kv" | "memory" = "memory";
-async function getKv(): Promise<Deno.Kv | null> {
+async function getKv(): Promise<KV | null> {
   if (_kv !== undefined) return _kv;
-  try { _kv = await Deno.openKv(); STORAGE_MODE = "kv"; } catch { _kv = null; STORAGE_MODE = "memory"; }
+  try { _kv = await Deno.openKv() as unknown as KV; STORAGE_MODE = "kv"; } catch { _kv = null; STORAGE_MODE = "memory"; }
   return _kv;
 }
 
@@ -116,7 +119,7 @@ class ConfigStore {
   }
   seedFromEnv() {
     for (const [id, def] of Object.entries(BUILTIN)) {
-      this.providers.set(id, { id, ...def, models: [], keys: [], enabled: !def.isCustom });
+      this.providers.set(id, { id, ...def, models: [], keys: [], enabled: !def.isCustom, isCustom: !!def.isCustom });
     }
     this.addSeedKeys();
   }
@@ -134,7 +137,7 @@ class ConfigStore {
   async persist() {
     const kv = await getKv();
     if (!kv) return;
-    await kv.put(["config"], { providers: [...this.providers.values()] });
+    await kv.set(["config"], { providers: [...this.providers.values()] });
   }
   list() {
     return [...this.providers.values()].map((p) => {
@@ -181,7 +184,7 @@ class ConfigStore {
     let restored = 0;
     for (const [id, def] of Object.entries(BUILTIN)) {
       if (!this.providers.has(id)) restored++;
-      this.providers.set(id, { id, ...def, models: [], keys: [], enabled: !def.isCustom });
+      this.providers.set(id, { id, ...def, models: [], keys: [], enabled: !def.isCustom, isCustom: !!def.isCustom });
     }
     // 兜底：把 isCustom=false 但字段被污染的也重置回 BUILTIN 定义
     for (const [id, def] of Object.entries(BUILTIN)) {
@@ -317,7 +320,7 @@ class RouteRules {
   async persist() {
     const kv = await getKv();
     if (!kv) return;
-    await kv.put(["routes"], { rules: this.rules });
+    await kv.set(["routes"], { rules: this.rules });
   }
   resolve(model: string, allProviders: string[]): string[] {
     const matches: RouteRule[] = [];
@@ -437,12 +440,12 @@ function buildUpstream(protocol: Proto, baseUrl: string, key: string, body: Reco
     return { url: `${b}/chat/completions`, method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body };
   }
   if (protocol === "anthropic") {
-    const msgs = (body.messages || []).filter((m: any) => m.role !== "system").map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content || "" }));
-    const system = (body.messages || []).find((m: any) => m.role === "system")?.content;
-    return { url: `${b}/messages`, method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: { model: body.model, messages: msgs, ...(system ? { system } : {}), max_tokens: (body as any).max_tokens || 4096 } };
+    const msgs = ((body.messages as any[]) || []).filter((m: any) => m.role !== "system").map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content || "" }));
+    const system = ((body.messages as any[]) || []).find((m: any) => m.role === "system")?.content;
+    return { url: `${b}/messages`, method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: { model: (body as any).model, messages: msgs, ...(system ? { system } : {}), max_tokens: (body as any).max_tokens || 4096 } };
   }
   if (protocol === "google") {
-    const lastMsg = [...(body.messages || [])].reverse().find((m: any) => m.role === "user");
+    const lastMsg = [...((body.messages as any[]) || [])].reverse().find((m: any) => m.role === "user");
     return { url: `${b}/models/${(body as any).model}:generateContent?key=${key}`, method: "POST", headers: { "content-type": "application/json" }, body: { contents: [{ role: "user", parts: [{ text: lastMsg?.content || "" }] }] } };
   }
   return { url: `${b}/chat/completions`, method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body };
@@ -746,36 +749,94 @@ app.get("/admin/api/auth/me", async (c) => {
   return c.json({ loggedIn: ok, user: ok ? ENV.ADMIN_USER : null });
 });
 
+// =====================================================================
+//  全局错误处理：任何未捕获异常 -> 返回带错误文本的 JSON，永不 500
+//  --------------------------------------------------------------------
+//  这是根治 "POST /routes / /providers 返回 500" 的关键：
+//  此前 KV 写入失败 / JSON 解析 / 字段非法时直接抛到 Hono，Hono 默认 500，
+//  浏览器只看到 "Internal Server Error"，前端无法处理、也无法显示具体原因。
+//  现在：统一捕获 -> { ok:false, error:"具体消息" }，前端 toast 可见。
+// =====================================================================
+function jsonError(c: any, status: number, msg: string) {
+  return c.json({ ok: false, error: msg }, status);
+}
+// guarded：包装 handler，try/catch 后返回错误 JSON 而非抛出 500
+function guarded(handler: (c: any) => Promise<Response> | Response) {
+  return async (c: any) => {
+    try {
+      return await handler(c);
+    } catch (e) {
+      const err = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      const stack = e instanceof Error && e.stack ? e.stack : "";
+      console.error(`[admin api error] ${c.req.raw.method} ${c.req.raw.url}\n${err}\n${stack}`);
+      // 区分类型给出更友好提示
+      if (err.includes("not found") || err.includes("404")) return jsonError(c, 404, err);
+      if (err.includes("unauthorized") || err.includes("401")) return jsonError(c, 401, err);
+      return jsonError(c, 500, err);
+    }
+  };
+}
+// safeJson：写 KV 前深清洗，去掉 undefined/函数/Date/Map 等不可序列化值，
+// 避免 "Value not serializable" 导致 put 抛错 -> 500
+function safeJson(v: any): any {
+  return JSON.parse(JSON.stringify(v, (_k, val) => {
+    if (val === undefined || typeof val === "function" || typeof val === "symbol") return undefined;
+    if (val instanceof Date) return val.toISOString();
+    if (typeof Map !== "undefined" && val instanceof Map) return Object.fromEntries(val.entries());
+    if (typeof Set !== "undefined" && val instanceof Set) return Array.from(val);
+    return val;
+  }));
+}
+// 安全的 KV put：清洗 + try/catch，绝不抛错
+async function safeKvPut(kv: KV | null, key: KvKey, value: unknown): Promise<boolean> {
+  if (!kv) return false;
+  try {
+    await kv.set(key, safeJson(value));
+    return true;
+  } catch (e) {
+    console.error("[kv put failed]", key, e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
 // 供应商 CRUD
-app.get("/admin/api/providers", async (c) => { await CONFIG.ready; return c.json(CONFIG.list()); });
-app.get("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const p = CONFIG.providers.get(c.req.param("id")); if (!p) return c.json({ error: "not found" }, 404); return c.json(p); });
-app.post("/admin/api/providers", async (c) => { await CONFIG.ready; const b = await c.req.json(); return c.json(CONFIG.upsert(b)); });
-app.put("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const b = await c.req.json(); b.id = c.req.param("id"); return c.json(CONFIG.upsert(b)); });
-app.delete("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const r = CONFIG.delete(c.req.param("id")); if (r && (r as any).error) return c.json(r, 400); return c.json(r); });
+app.get("/admin/api/providers", guarded(async (c) => { await CONFIG.ready; return c.json(CONFIG.list()); }));
+app.get("/admin/api/providers/:id", guarded(async (c) => { await CONFIG.ready; const p = CONFIG.providers.get(c.req.param("id")); if (!p) return jsonError(c, 404, "provider not found"); return c.json(p); }));
+app.post("/admin/api/providers", guarded(async (c) => { await CONFIG.ready; const b = await c.req.json().catch(() => ({})); const p = CONFIG.upsert(b); await safeKvPut(await getKv(), ["config"], { providers: [...CONFIG.providers.values()] }); return c.json(p); }));
+app.set("/admin/api/providers/:id", guarded(async (c) => { await CONFIG.ready; const b = await c.req.json().catch(() => ({})); b.id = c.req.param("id"); const p = CONFIG.upsert(b); await safeKvPut(await getKv(), ["config"], { providers: [...CONFIG.providers.values()] }); return c.json(p); }));
+app.delete("/admin/api/providers/:id", guarded(async (c) => { await CONFIG.ready; const r = CONFIG.delete(c.req.param("id")); if (r && (r as any).error) return jsonError(c, 400, (r as any).error); await safeKvPut(await getKv(), ["config"], { providers: [...CONFIG.providers.values()] }); return c.json(r); }));
 // 一键恢复全部内置供应商（前端「＋ 恢复内置供应商」按钮调用）
-app.post("/admin/api/providers/reset-builtin", async (c) => { await CONFIG.ready; return c.json(CONFIG.resetBuiltin()); });
+app.post("/admin/api/providers/reset-builtin", guarded(async (c) => { await CONFIG.ready; const r = CONFIG.resetBuiltin(); await safeKvPut(await getKv(), ["config"], { providers: [...CONFIG.providers.values()] }); return c.json(r); }));
 // Keys
-app.post("/admin/api/providers/:id/keys", async (c) => { await CONFIG.ready; const { id } = c.req.param(); const b = await c.req.json(); const r = CONFIG.addKey(id, b.key, b.label, b.weight || 1); if (!r) return c.json({ error: "not found" }, 404); return c.json(r); });
-app.get("/admin/api/providers/:id/keys", async (c) => { await CONFIG.ready; const p = CONFIG.providers.get(c.req.param("id")); if (!p) return c.json({ error: "not found" }, 404); return c.json(p.keys.map(({ key, ...k }) => ({ ...k, key: key ? key.slice(0, 4) + "****" : "" }))); });
-app.put("/admin/api/providers/:id/keys/:keyId", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); const b = await c.req.json(); const p = CONFIG.providers.get(id); if (!p) return c.json({ error: "not found" }, 404); const k = p.keys.find((x) => x.id === keyId); if (!k) return c.json({ error: "not found" }, 404); if (typeof b.key === "string" && b.key) k.key = b.key; if (typeof b.weight === "number") k.weight = b.weight; if (typeof b.enabled === "boolean") k.enabled = b.enabled; CONFIG.persist(); return c.json({ ...k, key: k.key.slice(0, 4) + "****" }); });
-app.delete("/admin/api/providers/:id/keys/:keyId", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); return c.json(CONFIG.deleteKey(id, keyId)); });
-app.post("/admin/api/providers/:id/keys/:keyId/recover", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); return c.json(CONFIG.recoverKey(id, keyId)); });
+app.post("/admin/api/providers/:id/keys", guarded(async (c) => { await CONFIG.ready; const { id } = c.req.param(); const b = await c.req.json().catch(() => ({})); const r = CONFIG.addKey(id, b.key, b.label, b.weight || 1); if (!r) return jsonError(c, 404, "provider not found"); await safeKvPut(await getKv(), ["config"], { providers: [...CONFIG.providers.values()] }); return c.json(r); }));
+app.get("/admin/api/providers/:id/keys", guarded(async (c) => { await CONFIG.ready; const p = CONFIG.providers.get(c.req.param("id")); if (!p) return jsonError(c, 404, "provider not found"); return c.json(p.keys.map(({ key, ...k }: any) => ({ ...k, key: key ? key.slice(0, 4) + "****" : "" }))); }));
+app.set("/admin/api/providers/:id/keys/:keyId", guarded(async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); const b = await c.req.json().catch(() => ({})); const p = CONFIG.providers.get(id); if (!p) return jsonError(c, 404, "provider not found"); const k: any = p.keys.find((x: any) => x.id === keyId); if (!k) return jsonError(c, 404, "key not found"); if (typeof b.key === "string" && b.key) k.key = b.key; if (typeof b.weight === "number") k.weight = b.weight; if (typeof b.enabled === "boolean") k.enabled = b.enabled; CONFIG.persist(); await safeKvPut(await getKv(), ["config"], { providers: [...CONFIG.providers.values()] }); return c.json({ ...k, key: k.key.slice(0, 4) + "****" }); }));
+app.delete("/admin/api/providers/:id/keys/:keyId", guarded(async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); const r = CONFIG.deleteKey(id, keyId); await safeKvPut(await getKv(), ["config"], { providers: [...CONFIG.providers.values()] }); return c.json(r); }));
+app.post("/admin/api/providers/:id/keys/:keyId/recover", guarded(async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); const r = CONFIG.recoverKey(id, keyId); await safeKvPut(await getKv(), ["config"], { providers: [...CONFIG.providers.values()] }); return c.json(r); }));
 // 连通性测试 + 模型探测
-app.post("/admin/api/providers/:id/test", async (c) => { await CONFIG.ready; const { id } = c.req.param(); const p = CONFIG.providers.get(id); if (!p) return c.json({ ok: false }, 404); const r = await healthCheckOnce(p); return c.json({ ok: r.healthy > 0, ...r }); });
+app.post("/admin/api/providers/:id/test", guarded(async (c) => { await CONFIG.ready; const { id } = c.req.param(); const p = CONFIG.providers.get(id); if (!p) return jsonError(c, 404, "provider not found"); const r = await healthCheckOnce(p); return c.json({ ok: r.healthy > 0, ...r }); }));
 // 路由规则
-app.get("/admin/api/routes", async (c) => { await ROUTES.ready; return c.json(ROUTES.list()); });
-app.post("/admin/api/routes", async (c) => { await ROUTES.ready; const b = await c.req.json(); return c.json(ROUTES.add(b)); });
-app.put("/admin/api/routes/:id", async (c) => { const b = await c.req.json(); const r = ROUTES.update(c.req.param("id"), b); if (!r) return c.json({ error: "not found" }, 404); return c.json(r); });
-app.delete("/admin/api/routes/:id", (c) => { ROUTES.remove(c.req.param("id")); return c.json({ ok: true }); });
+app.get("/admin/api/routes", guarded(async (c) => { await ROUTES.ready; return c.json(ROUTES.list()); }));
+app.post("/admin/api/routes", guarded(async (c) => {
+  await ROUTES.ready;
+  const b = await c.req.json().catch(() => ({}));
+  if (!b.pattern || !Array.isArray(b.providers) || !b.providers.length) return jsonError(c, 400, "pattern 与 providers 不能为空");
+  const item = safeJson({ id: `r_${Date.now().toString(36)}_${Math.floor(Math.random() * 0xffff).toString(36)}`, pattern: b.pattern, providers: b.providers });
+  ROUTES.rules.push(item);
+  const ok = await safeKvPut(await getKv(), ["routes"], { rules: ROUTES.rules });
+  return c.json({ ...item, _persisted: ok });
+}));
+app.set("/admin/api/routes/:id", guarded(async (c) => { const b = await c.req.json().catch(() => ({})); const r = ROUTES.update(c.req.param("id"), b); if (!r) return jsonError(c, 404, "route not found"); await safeKvPut(await getKv(), ["routes"], { rules: ROUTES.rules }); return c.json(r); }));
+app.delete("/admin/api/routes/:id", guarded(async (c) => { ROUTES.remove(c.req.param("id")); await safeKvPut(await getKv(), ["routes"], { rules: ROUTES.rules }); return c.json({ ok: true }); }));
 // Proxy Keys
-app.get("/admin/api/proxy-keys", (c) => c.json(PKM.list()));
-app.post("/admin/api/proxy-keys", async (c) => { const b = await c.req.json(); return c.json(PKM.add(b)); });
-app.delete("/admin/api/proxy-keys/:id", (c) => { PKM.remove(c.req.param("id")); return c.json({ ok: true }); });
+app.get("/admin/api/proxy-keys", guarded((c) => c.json(PKM.list()))) ;
+app.post("/admin/api/proxy-keys", guarded(async (c) => { const b = await c.req.json().catch(() => ({})); return c.json(PKM.add(b)); }));
+app.delete("/admin/api/proxy-keys/:id", guarded((c) => c.json(PKM.remove(c.req.param("id")))));
 // 统计 / 日志 / 健康
 app.get("/admin/api/stats/latency", (c) => c.json({ overall: LATENCY.summary(), providers: LATENCY.allByProvider() }));
 app.get("/admin/api/stats/usage", (c) => {
   const byProvider: Record<string, { requests: number; input: number; output: number }> = {};
-  for (const e of REQLOG["entries"]) {
+  for (const e of (REQLOG as any).entries) {
     if (!byProvider[e.provider]) byProvider[e.provider] = { requests: 0, input: 0, output: 0 };
     byProvider[e.provider].requests++;
     byProvider[e.provider].input += e.input_tokens || 0;
@@ -784,14 +845,14 @@ app.get("/admin/api/stats/usage", (c) => {
   return c.json({ total_tokens: REQLOG.totalTokens(), providers: byProvider });
 });
 app.get("/admin/api/logs", (c) => { const url = new URL(c.req.raw.url); return c.json(REQLOG.query({ provider: url.searchParams.get("provider") || undefined, model: url.searchParams.get("model") || undefined, limit: Number(url.searchParams.get("limit") || 100) })); });
-app.get("/admin/api/health/status", async (c) => { await CONFIG.ready; const data = await healthCheckAll(); return c.json({ data, alerts: WEBHOOK.alerts.slice(0, 20) }); });
+app.get("/admin/api/health/status", guarded(async (c) => { await CONFIG.ready; const data = await healthCheckAll(); return c.json({ data, alerts: WEBHOOK.alerts.slice(0, 20) }); }));
 // 存储状态：前端顶栏指示器据此显示"持久化/KV可用"或"内存模式·重启会丢失"
-app.get("/admin/api/storage/status", async (c) => {
+app.get("/admin/api/storage/status", guarded(async (c) => {
   await CONFIG.ready; await ROUTES.ready;
   const kv = await getKv();
   // 用一次真实写入探测 KV 是否真正可写（部分环境 openKv 成功但 put 失败）
   let writable = false;
-  if (kv) { try { await kv.put(["_probe"], { t: Date.now() }); await kv.delete(["_probe"]); writable = true; } catch {} }
+  if (kv) { try { await kv.set(["_probe"], safeJson({ t: Date.now() })); await kv.delete(["_probe"]); writable = true; } catch (e) { console.error("[kv probe failed]", e instanceof Error ? e.message : e); } }
   return c.json({
     mode: writable ? "kv" : "memory",
     backend: kv ? "deno-kv" : "none",
@@ -800,18 +861,20 @@ app.get("/admin/api/storage/status", async (c) => {
     routes: ROUTES.rules.length,
     warning: writable ? null : "当前为内存模式，重启/重部署后添加的供应商、Key、路由规则将全部丢失。请在 Deno Deploy 项目中启用 Deno KV 持久化。",
   });
-});
-app.post("/admin/api/health/check", async (c) => { await CONFIG.ready; const data = await healthCheckAll(); return c.json({ ok: true, data }); });
+}));
+app.post("/admin/api/health/check", guarded(async (c) => { await CONFIG.ready; const data = await healthCheckAll(); return c.json({ ok: true, data }); }));
 // 告警
 app.get("/admin/api/alerts", (c) => c.json(WEBHOOK.alerts.slice(0, 50)));
 // 配置导入 / 导出
 app.get("/admin/api/config/export", (c) => c.json(exportConfig(CONFIG.list(), ROUTES, PKM)));
-app.post("/admin/api/config/import", async (c) => {
-  const b = await c.req.json();
+app.post("/admin/api/config/import", guarded(async (c) => {
+  const b = await c.req.json().catch(() => ({}));
   if (b.providers) for (const p of b.providers) CONFIG.upsert(p);
   if (b.routes) for (const r of b.routes) ROUTES.add(r);
+  await safeKvPut(await getKv(), ["config"], { providers: [...CONFIG.providers.values()] });
+  await safeKvPut(await getKv(), ["routes"], { rules: ROUTES.rules });
   return c.json({ ok: true });
-});
+}));
 
 // =====================================================================
 //  Dashboard (独立 dashboard.html，由 /admin 路由注入动态数据)

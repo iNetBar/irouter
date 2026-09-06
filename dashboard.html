@@ -406,11 +406,24 @@ window.api = function(path, opts){
   opts = opts || {};
   return fetch('/admin/api' + path, {
     method: opts.method || 'GET',
-    headers: opts.body ? {'Content-Type':'application/json'} : {},
-    body: opts.body ? JSON.stringify(opts.body) : undefined
+    headers: Object.assign({'Accept':'application/json'}, opts.body ? {'Content-Type':'application/json'} : {}),
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    credentials: 'include'
   }).then(function(r){
-    if(!r.ok) return r.json().then(function(e){ throw new Error(e.error || ('HTTP '+r.status)); }, function(){ throw new Error('HTTP '+r.status); });
-    return r.json();
+    // 无论成功失败，都先尝试解析 JSON；拿不到再读纯文本 —— 保证错误信息不空
+    return r.text().then(function(txt){
+      var data = null;
+      if(txt){ try { data = JSON.parse(txt); } catch(e){ data = null; } }
+      if(r.ok){
+        // 后端业务层也可能返回 {ok:false, error:...}，一并视为错误
+        if(data && data.ok === false && data.error) throw new Error(data.error);
+        return data;
+      }
+      var msg = (data && (data.error || data.message)) || txt || ('HTTP ' + r.status);
+      var err = new Error(msg);
+      err.status = r.status; err.path = path; err.response = data;
+      throw err;
+    });
   });
 };
 
