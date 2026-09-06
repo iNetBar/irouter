@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.4.6";
+const VERSION = "2.4.7";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -78,9 +78,11 @@ interface AlertEntry { ts: number; event: string; provider?: string; key?: strin
 
 // ---------- KV (懒加载) ----------
 let _kv: Deno.Kv | null | undefined = undefined;
+// 存储模式：'kv' = Deno KV 持久化可用；'memory' = 仅内存(重启会丢失)，前端据此告警
+let STORAGE_MODE: "kv" | "memory" = "memory";
 async function getKv(): Promise<Deno.Kv | null> {
   if (_kv !== undefined) return _kv;
-  try { _kv = await Deno.openKv(); } catch { _kv = null; }
+  try { _kv = await Deno.openKv(); STORAGE_MODE = "kv"; } catch { _kv = null; STORAGE_MODE = "memory"; }
   return _kv;
 }
 
@@ -199,10 +201,11 @@ class ConfigStore {
     this.persist();
     return { ok: true };
   }
+  private keySeq = 0;
   addKey(id: string, key: string, label?: string, weight = 1) {
     const p = this.providers.get(id);
     if (!p) return null;
-    const k: ApiKey = { id: `k_${Date.now().toString(36)}`, key, label, weight, enabled: true, failCount: 0 };
+    const k: ApiKey = { id: `k_${Date.now().toString(36)}_${(this.keySeq++).toString(36)}`, key, label, weight, enabled: true, failCount: 0 };
     p.keys.push(k);
     this.persist();
     return { ...k, key: k.key.slice(0, 4) + "****" };
@@ -300,6 +303,22 @@ class RequestLog {
 // =====================================================================
 class RouteRules {
   rules: RouteRule[] = [];
+  ready: Promise<void>;
+  constructor() { this.ready = this.init(); }
+  async init() {
+    const kv = await getKv();
+    if (kv) {
+      try {
+        const stored = await kv.get<{ rules: RouteRule[] }>(["routes"]);
+        if (stored.value?.rules?.length) this.rules = stored.value.rules;
+      } catch {}
+    }
+  }
+  async persist() {
+    const kv = await getKv();
+    if (!kv) return;
+    await kv.put(["routes"], { rules: this.rules });
+  }
   resolve(model: string, allProviders: string[]): string[] {
     const matches: RouteRule[] = [];
     for (const r of this.rules) {
@@ -316,17 +335,20 @@ class RouteRules {
     return allProviders;
   }
   list() { return { rules: this.rules }; }
+  private seq = 0;
   add(b: Partial<RouteRule> & { pattern: string; providers: string[] }) {
-    const r: RouteRule = { id: `r_${Date.now().toString(36)}`, pattern: b.pattern, providers: b.providers };
+    const r: RouteRule = { id: `r_${Date.now().toString(36)}_${(this.seq++).toString(36)}`, pattern: b.pattern, providers: b.providers };
     this.rules.push(r);
+    this.persist();
     return r;
   }
-  remove(id: string) { this.rules = this.rules.filter((r) => r.id !== id); return { ok: true }; }
+  remove(id: string) { this.rules = this.rules.filter((r) => r.id !== id); this.persist(); return { ok: true }; }
   update(id: string, b: Partial<RouteRule>) {
     const r = this.rules.find((x) => x.id === id);
     if (!r) return null;
     if (b.pattern !== undefined) r.pattern = b.pattern;
     if (b.providers !== undefined) r.providers = b.providers;
+    this.persist();
     return r;
   }
 }
@@ -589,7 +611,7 @@ app.get("/", async (c) => {
   const html = DASHBOARD_TEMPLATE.replace(/\{\{VERSION\}\}/g, VERSION);
   return c.html(html);
 });
-app.get("/health", (c) => c.json({ ok: true, version: VERSION, providers: CONFIG.providers.size }));
+app.get("/health", (c) => c.json({ ok: true, version: VERSION, providers: CONFIG.providers.size, storage: STORAGE_MODE }));
 
 // ---- /v1/models ----
 app.get("/v1/models", async (c) => {
@@ -739,8 +761,8 @@ app.post("/admin/api/providers/:id/keys/:keyId/recover", async (c) => { await CO
 // 连通性测试 + 模型探测
 app.post("/admin/api/providers/:id/test", async (c) => { await CONFIG.ready; const { id } = c.req.param(); const p = CONFIG.providers.get(id); if (!p) return c.json({ ok: false }, 404); const r = await healthCheckOnce(p); return c.json({ ok: r.healthy > 0, ...r }); });
 // 路由规则
-app.get("/admin/api/routes", (c) => c.json(ROUTES.list()));
-app.post("/admin/api/routes", async (c) => { const b = await c.req.json(); return c.json(ROUTES.add(b)); });
+app.get("/admin/api/routes", async (c) => { await ROUTES.ready; return c.json(ROUTES.list()); });
+app.post("/admin/api/routes", async (c) => { await ROUTES.ready; const b = await c.req.json(); return c.json(ROUTES.add(b)); });
 app.put("/admin/api/routes/:id", async (c) => { const b = await c.req.json(); const r = ROUTES.update(c.req.param("id"), b); if (!r) return c.json({ error: "not found" }, 404); return c.json(r); });
 app.delete("/admin/api/routes/:id", (c) => { ROUTES.remove(c.req.param("id")); return c.json({ ok: true }); });
 // Proxy Keys
@@ -761,6 +783,22 @@ app.get("/admin/api/stats/usage", (c) => {
 });
 app.get("/admin/api/logs", (c) => { const url = new URL(c.req.raw.url); return c.json(REQLOG.query({ provider: url.searchParams.get("provider") || undefined, model: url.searchParams.get("model") || undefined, limit: Number(url.searchParams.get("limit") || 100) })); });
 app.get("/admin/api/health/status", async (c) => { await CONFIG.ready; const data = await healthCheckAll(); return c.json({ data, alerts: WEBHOOK.alerts.slice(0, 20) }); });
+// 存储状态：前端顶栏指示器据此显示"持久化/KV可用"或"内存模式·重启会丢失"
+app.get("/admin/api/storage/status", async (c) => {
+  await CONFIG.ready; await ROUTES.ready;
+  const kv = await getKv();
+  // 用一次真实写入探测 KV 是否真正可写（部分环境 openKv 成功但 put 失败）
+  let writable = false;
+  if (kv) { try { await kv.put(["_probe"], { t: Date.now() }); await kv.delete(["_probe"]); writable = true; } catch {} }
+  return c.json({
+    mode: writable ? "kv" : "memory",
+    backend: kv ? "deno-kv" : "none",
+    writable,
+    providers: CONFIG.providers.size,
+    routes: ROUTES.rules.length,
+    warning: writable ? null : "当前为内存模式，重启/重部署后添加的供应商、Key、路由规则将全部丢失。请在 Deno Deploy 项目中启用 Deno KV 持久化。",
+  });
+});
 app.post("/admin/api/health/check", async (c) => { await CONFIG.ready; const data = await healthCheckAll(); return c.json({ ok: true, data }); });
 // 告警
 app.get("/admin/api/alerts", (c) => c.json(WEBHOOK.alerts.slice(0, 50)));

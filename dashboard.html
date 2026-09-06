@@ -249,6 +249,20 @@ input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);trans
 .modal .x:hover{color:var(--txt);background:transparent}
 .alert{background:color-mix(in srgb,var(--warn) 12%,transparent);border:1px solid var(--warn);color:var(--warn);padding:10px 13px;border-radius:var(--radius-sm);margin-bottom:12px;font-size:13px}
 
+/* ===================== 存储状态指示器 ===================== */
+.storage-status{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:12px;font-weight:600;color:var(--muted);
+  padding:5px 11px;border-radius:20px;border:1px solid var(--line);
+  background:var(--panel);white-space:nowrap;cursor:default;
+}
+.storage-status .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.storage-status.ok{color:#1a9c5b;border-color:color-mix(in srgb,#1a9c5b 45%,transparent);background:color-mix(in srgb,#1a9c5b 8%,transparent)}
+.storage-status.ok .dot{background:#1a9c5b;box-shadow:0 0 0 3px color-mix(in srgb,#1a9c5b 20%,transparent)}
+.storage-status.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 55%,transparent);background:color-mix(in srgb,var(--warn) 10%,transparent)}
+.storage-status.warn .dot{background:var(--warn);box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 22%,transparent);animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+
 /* ===================== Toast ===================== */
 .toast{
   position:fixed;top:22px;left:50%;transform:translateX(-50%);
@@ -345,6 +359,9 @@ input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);trans
   <button class="burger" id="burger" aria-label="菜单"><span></span><span></span><span></span></button>
   <h1 id="pageTitle">供应商</h1>
   <span class="clock" id="clock"></span>
+  <span id="storageStatus" class="storage-status" title="存储状态">
+    <i class="dot"></i><span class="txt">检测中…</span>
+  </span>
   <button id="themeBtn" class="theme-btn" title="切换亮色/暗色" aria-label="切换主题">🌙</button>
  </div>
  <div class="wrap" id="view"></div>
@@ -358,6 +375,13 @@ var $ = function(s){ return document.querySelector(s); };
 var esc = function(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); };
 
 window.closeModal = function(){ $('#modal').classList.remove('on'); };
+
+// 保存成功时的持久化状态后缀：内存模式下明确提示"重启会丢失"，不再静默
+window.storageSuffix = function(){
+  var el = document.getElementById('storageStatus');
+  if (el && el.classList.contains('warn')) return '（内存模式·重启会丢失，请启用 Deno KV）';
+  return '';
+};
 
 window.toast = function(msg, kind, opts){
   opts = opts || {};
@@ -590,7 +614,7 @@ window.saveProvider = function(id){
   var method = id ? 'PUT' : 'POST';
   var path = '/providers' + (id ? '/'+encodeURIComponent(id) : '');
   window.api(path, {method:method, body:data}).then(function(){
-    window.toast('已保存', 'ok', {center:true}); closeModal(); window.render_providers();
+    window.toast('已保存' + storageSuffix(), 'ok', {center:true}); closeModal(); window.render_providers();
   }).catch(function(err){ window.toast('保存失败：'+err.message,'err'); console.error(err); });
 };
 
@@ -729,7 +753,7 @@ window.saveKey = function(pid, keyId){
     method = 'POST'; path = '/providers/'+encodeURIComponent(pid)+'/keys';
   }
   window.api(path, {method:method, body:body}).then(function(res){
-    window.toast('已保存', 'ok', {center:true}); closeModal();
+    window.toast('已保存' + storageSuffix(), 'ok', {center:true}); closeModal();
     // 关键闭环：把后端返回的 key 直接写入本地缓存并渲染，不再依赖整列重拉（断掉 404 链路）
     var saved = (res && res.id) ? res : { id: keyId || ('k_'+Date.now().toString(36)), key: keyVal, weight: body.weight, enabled: body.enabled, failCount: 0 };
     window._keysCache = window._keysCache || {};
@@ -845,7 +869,7 @@ window.saveRoute = function(id){
   var body = {pattern:pat, providers:provs};
   var method = id ? 'PUT' : 'POST';
   var path = id ? '/routes/'+encodeURIComponent(id) : '/routes';
-  window.api(path, {method:method, body:body}).then(function(){ window.toast(id?'已更新':'已添加'); closeModal(); window.render_routes(); }).catch(function(err){ window.toast(err.message,'err'); });
+  window.api(path, {method:method, body:body}).then(function(){ window.toast((id?'已更新':'已添加') + storageSuffix()); closeModal(); window.render_routes(); }).catch(function(err){ window.toast(err.message,'err'); });
 };
 
 window.addRoute = function(){ window.openRoute(); };  // 兼容：按钮点击走弹窗
@@ -945,6 +969,38 @@ window.submitChangePass = function(){
 };
 
 // ---------- 入口：先校验登录态 ----------
+// ---------- 顶栏存储状态指示器 ----------
+// 每 15s 轮询 /admin/api/storage/status：
+//   mode='kv'     → 绿点 "已持久化 · KV"（供应商/Key/路由 重启不丢）
+//   mode='memory' → 黄点 "⚠ 内存模式·重启会丢失"（明确告知，不再静默"玩消失"）
+// 切换 Tab / 登录后都会立即刷新一次。
+window.startStorageWatch = function(){
+  var el = document.getElementById('storageStatus');
+  if (!el) return;
+  var txt = el.querySelector('.txt');
+  function apply(d){
+    if (!d) return;
+    el.classList.remove('ok','warn');
+    if (d.mode === 'kv' && d.writable) {
+      el.classList.add('ok');
+      txt.textContent = '已持久化 · KV';
+      el.title = 'Deno KV 已启用，添加的供应商/Key/路由规则重启后保留';
+    } else {
+      el.classList.add('warn');
+      txt.textContent = '⚠ 内存模式';
+      el.title = d.warning || '当前为内存模式，重启后数据将丢失';
+    }
+  }
+  window.fetchStorageStatus = function(){
+    fetch('/admin/api/storage/status', {headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.json(); })
+      .then(apply)
+      .catch(function(){ /* 保持上一次状态，不闪烁 */ });
+  };
+  window.fetchStorageStatus();
+  setInterval(window.fetchStorageStatus, 15000);
+};
+
 function initAuth(){
   var loginPage = $('#login-page');
   if(!loginPage) { bootApp(); return; }
@@ -971,6 +1027,7 @@ window.bootApp = function(){
   initBurger();
   initNav();
   initTableActions();
+  startStorageWatch();   // 顶栏存储状态指示器（持久化/KV可用 or 内存模式告警）
   tickClock();
   setInterval(tickClock, 30000);
   var hash = (location.hash||'').replace('#','');
