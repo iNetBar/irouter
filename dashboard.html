@@ -171,7 +171,7 @@ button.ghost:hover{background:var(--nav-hover)}
 table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
 th,td{text-align:left;padding:11px 12px;vertical-align:middle;border-bottom:1px solid var(--line)}
 th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.3px;text-transform:uppercase;background:var(--panel-2);position:sticky;top:0}
-tbody tr{transition:background .12s ease}
+tbody tr{align-items:stretch;transition:background .12s ease}
 tbody tr:hover{background:var(--panel-2)}
 tbody tr:last-child td{border-bottom:none}
 
@@ -179,9 +179,9 @@ tbody tr:last-child td{border-bottom:none}
 .actions{display:inline-flex;align-items:center;gap:6px}
 /* 操作列：隔离整行 hover 的灰色；按钮组无底色，仅做布局 */
 td.row-actions{display:flex!important;align-items:center;justify-content:flex-end;flex-wrap:nowrap;white-space:nowrap;padding:11px 12px!important;background:transparent!important;height:100%;box-sizing:border-box}
-/* 名称列：与操作列完全一致的盒模型，保证垂直中线对齐 */
-td.cell-name{padding:11px 12px!important;vertical-align:middle;height:100%;box-sizing:border-box}
-td.cell-name .cell-name-inner{display:flex;flex-direction:column;justify-content:center;line-height:1.35}
+/* 名称列：与操作列完全一致的盒模型 + 同样用 flex 居中，保证垂直中线严格对齐 */
+td.cell-name{display:flex!important;align-items:center;justify-content:center;flex-direction:column;padding:11px 12px!important;vertical-align:middle;min-height:56px;box-sizing:border-box}
+td.cell-name .cell-name-inner{display:flex;flex-direction:column;justify-content:center;line-height:1.35;width:100%}
 .btn-group{
   display:inline-flex;align-items:center;gap:0;
   background:transparent;   /* 无外壳底色 —— 你要求：不要灰色容器 */
@@ -246,7 +246,7 @@ input[type="checkbox"]{width:auto;max-width:none;accent-color:var(--brand);trans
 .toast{
   position:fixed;top:22px;left:50%;transform:translateX(-50%) translateY(-12px);
   background:var(--panel);color:var(--txt);padding:11px 20px;border-radius:12px;
-  z-index:9999;font-size:13px;font-weight:500;border:1px solid var(--line);box-shadow:var(--shadow);
+  z-index:99999;font-size:13px;font-weight:500;border:1px solid var(--line);box-shadow:var(--shadow);
   opacity:0;transition:all .22s cubic-bezier(.4,0,.2,1);pointer-events:none;max-width:90vw
 }
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -657,7 +657,20 @@ window.saveKey = function(pid, keyId){
   var body = {key:keyVal, weight:parseInt($('#k_weight').value)||1, enabled:$('#k_enabled').checked};
   var method = keyId ? 'PUT' : 'POST';
   var path = '/providers/'+encodeURIComponent(pid)+'/keys'+(keyId?'/'+encodeURIComponent(keyId):'');
-  window.api(path, {method:method, body:body}).then(function(){ window.toast('已保存'); closeModal(); window.render_keys_list(); }).catch(function(err){ window.toast(err.message,'err'); });
+  window.api(path, {method:method, body:body}).then(function(){
+    window.toast('已保存'); closeModal();
+    // 关键闭环：重新拉供应商列表 → 下拉框回填 → 强制选中刚保存的供应商 → 重新拉取该供应商的 keys 渲染
+    window.api('/providers').then(function(list){
+      var sel = document.getElementById('keyProvider');
+      if(sel){
+        var opts = '<option value="">（无）</option>';
+        (list||[]).forEach(function(p){ opts += '<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>'; });
+        sel.innerHTML = opts;
+        sel.value = pid;                       // 强制选中刚保存的供应商
+      }
+      window.render_keys_list();                 // 用当前下拉框值重新拉取并渲染
+    }).catch(function(){ window.render_keys_list(); });
+  }).catch(function(err){ window.toast(err.message,'err'); });
 };
 
 window.testKey = function(pid, keyId){

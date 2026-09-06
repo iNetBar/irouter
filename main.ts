@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.4.3";
+const VERSION = "2.4.4";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
