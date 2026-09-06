@@ -17,7 +17,7 @@ import { Hono } from "hono";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.4.2";
+const VERSION = "2.4.3";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",
@@ -315,7 +315,7 @@ class RouteRules {
     // 无规则：返回所有可用 (调用方按 defaultModel 匹配自然排序)
     return allProviders;
   }
-  list() { return this.rules; }
+  list() { return { rules: this.rules }; }
   add(b: Partial<RouteRule> & { pattern: string; providers: string[] }) {
     const r: RouteRule = { id: `r_${Date.now().toString(36)}`, pattern: b.pattern, providers: b.providers };
     this.rules.push(r);
@@ -731,7 +731,7 @@ app.delete("/admin/api/providers/:id", async (c) => { await CONFIG.ready; const 
 // 一键恢复全部内置供应商（前端「＋ 恢复内置供应商」按钮调用）
 app.post("/admin/api/providers/reset-builtin", async (c) => { await CONFIG.ready; return c.json(CONFIG.resetBuiltin()); });
 // Keys
-app.post("/admin/api/providers/:id/keys", async (c) => { await CONFIG.ready; const { id } = c.req.param(); const b = await c.req.json(); return c.json(CONFIG.addKey(id, b.key, b.label, b.weight || 1)); });
+app.post("/admin/api/providers/:id/keys", async (c) => { await CONFIG.ready; const { id } = c.req.param(); const b = await c.req.json(); const r = CONFIG.addKey(id, b.key, b.label, b.weight || 1); if (!r) return c.json({ error: "not found" }, 404); return c.json(r); });
 app.delete("/admin/api/providers/:id/keys/:keyId", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); return c.json(CONFIG.deleteKey(id, keyId)); });
 app.post("/admin/api/providers/:id/keys/:keyId/recover", async (c) => { await CONFIG.ready; const { id, keyId } = c.req.param(); return c.json(CONFIG.recoverKey(id, keyId)); });
 // 连通性测试 + 模型探测
