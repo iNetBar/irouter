@@ -1,5 +1,5 @@
-// 方案 A：直接使用完整 URL import（Deno Deploy 构建时按 URL 精确下载，锁定版本）
-import { Hono } from "https://deno.land/x/hono@v4.13.7/mod.ts";
+// v2.5.4：Hono 自托管于 ./hono.js（单文件，随项目部署，无需联网拉 deno.land/jsr）
+import { Hono } from "./hono.js";
 
 // =====================================================================
 //  LLM Router · v2.3.5 (完整版)
@@ -18,7 +18,7 @@ import { Hono } from "https://deno.land/x/hono@v4.13.7/mod.ts";
 // =====================================================================
 
 // ---------- ENV ----------
-const VERSION = "2.5.3";
+const VERSION = "2.5.4";
 const ENV = {
   PROXY_KEY: (Deno.env.get("PROXY_KEY") || "").split(",").map((s) => s.trim()).filter(Boolean),
   SEED_KEYS: Deno.env.get("SEED_KEYS") || "",

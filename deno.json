@@ -1,15 +1,13 @@
 {
-  "$schema": "https://deno.land/x/deno/cli/schemas/config-file.v1.json",
   "name": "irouter",
-  "version": "2.5.3",
-  "entry": "./main.ts",
-  "imports": {
-    "hono": "https://deno.land/x/hono@v4.13.7/mod.ts",
-    "hono/middleware": "https://deno.land/x/hono@v4.13.7/middleware.ts",
-    "std/": "https://deno.land/std@0.224.0/"
+  "version": "2.5.4",
+  "imports": {},
+  "compilerOptions": {
+    "jsx": "preserve",
+    "lib": ["deno.core", "deno.web"]
   },
   "tasks": {
-    "dev": "deno run --watch --allow-net --allow-env --allow-read main.ts",
-    "start": "deno run --allow-net --allow-env --allow-read main.ts"
+    "dev": "deno run --allow-net --allow-env --allow-read --unstable-kv main.ts",
+    "start": "deno run --allow-net --allow-env --allow-read --unstable-kv main.ts"
   }
 }

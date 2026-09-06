@@ -455,26 +455,62 @@ window.toast = function(msg, kind, opts){
   setTimeout(function(){ d.remove(); }, 2200);
 };
 
-window.api = function(path, opts){
-  opts = opts || {};
-  return fetch('/admin/api' + path, {
-    method: opts.method || 'GET',
-    headers: Object.assign({'Accept':'application/json'}, opts.body ? {'Content-Type':'application/json'} : {}),
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
+// ===================================================================
+//  统一 API 客户端（v2.5.4 修复：路径规范化，根治 /admin/apiGET 404）
+//  ---------------------------------------------------------------
+//  根因：render_providers / render_keys_list 等处调用 api(path, opts) 时
+//  path 是 "/providers" 这类「不含 method」的片段，与 render_dashboard
+//  的 api('GET', '/admin/api/dashboard')「带 method」两种写法并存。
+//  当 method 参数被误拼进 path（如 ' GET /admin/api/providers'）时，
+//  '/admin/api' + path 会拼成 '/admin/apiGET /admin/api/providers'，
+//  最终产生 GET /admin/apiGET 404。
+//  修复：统一签名为 api(method, path, body)，并对 path 做规范化：
+//    - trim 前后空格
+//    - 剥离误传入的 "METHOD /url" 前缀
+//    - 确保以 "/" 开头、合并重复斜杠
+// ===================================================================
+window.api = function api(method, path, body){
+  // ---- 参数归一：同时兼容 api(method, path, body) 与 api(path, {method,body}) ----
+  var m, p, b;
+  if(typeof method === 'string' && typeof path === 'string'){
+    // 新式：api('GET', '/providers') 或 api('DELETE', '/providers/xxx')
+    m = method.toUpperCase();
+    p = path;
+    b = body;
+  } else {
+    // 旧式：api('/providers', {method:'DELETE', body:{...}})
+    p = method;                       // 第一个参数其实是 path
+    var opts = (path && typeof path === 'object' && !Array.isArray(path)) ? path : {};
+    m = (opts.method || 'GET').toUpperCase();
+    b = opts.body;
+  }
+  p = (p == null ? '' : String(p)).replace(/^\s+|\s+$/g, '');   // trim
+  var full = p.match(/^(GET|POST|PUT|DELETE|PATCH)\s+(.+)$/i);   // 剥离 "METHOD /url"
+  if(full){ m = full[1].toUpperCase(); p = full[2]; }
+  p = p.replace(/^(GET|POST|PUT|DELETE|PATCH)\s+/i, '');          // 再保险：去掉残留前缀
+  if(p.indexOf('/') !== 0){ p = '/' + p; }                       // 必须以 / 开头
+  p = p.replace(/([^:]\/)\/+/g, '$1');                           // 合并重复 //
+  var url = p;
+  // 业务片段自动拼 /admin/api 前缀；/admin/*、/v1/* 等已是完整路径则不拼
+  if(/^\/(providers|routes|keys|config|proxy-keys|health|storage|dashboard|models|admin|stats|logs)(\/|$)/.test(p)){
+    url = '/admin/api' + p;
+  }
+  return fetch(url, {
+    method: m,
+    headers: Object.assign({'Accept':'application/json'}, b ? {'Content-Type':'application/json'} : {}),
+    body: b ? JSON.stringify(b) : undefined,
     credentials: 'include'
   }).then(function(r){
-    // 无论成功失败，都先尝试解析 JSON；拿不到再读纯文本 —— 保证错误信息不空
     return r.text().then(function(txt){
       var data = null;
       if(txt){ try { data = JSON.parse(txt); } catch(e){ data = null; } }
       if(r.ok){
-        // 后端业务层也可能返回 {ok:false, error:...}，一并视为错误
         if(data && data.ok === false && data.error) throw new Error(data.error);
         return data;
       }
       var msg = (data && (data.error || data.message)) || txt || ('HTTP ' + r.status);
       var err = new Error(msg);
-      err.status = r.status; err.path = path; err.response = data;
+      err.status = r.status; err.path = p; err.url = url; err.response = data;
       throw err;
     });
   });
@@ -1134,18 +1170,25 @@ window.fetchWithAuth = function(url, opts){
   });
 };
 
-// 所有后台 API 请求走 fetchWithAuth（401 自动跳登录页）
-window.api = function(path, opts){
-  opts = opts || {};
-  return window.fetchWithAuth('/admin/api' + path, {
-    method: opts.method || 'GET',
-    headers: opts.body ? {'Content-Type':'application/json'} : {},
-    body: opts.body ? JSON.stringify(opts.body) : undefined
-  }).then(function(r){
-    if(!r.ok) return r.json().then(function(e){ throw new Error(e.error || ('HTTP '+r.status)); }, function(){ throw new Error('HTTP '+r.status); });
-    return r.json();
-  });
-};
+// v2.5.4 迁移：清掉 v2.5.0 时代残留的脏缓存 key（如误拼成的
+// "admin/apiGET"），避免旧逻辑在刷新/重渲染时重复发起 404 请求。
+(function migrateV250Cache(){
+  try {
+    var keys = ['irouter_last_fetch','irouter_cache_v2','irouter_prefetch',
+                'irouter_api_cache','irouter_dashboard_cache'];
+    keys.forEach(function(k){ try { localStorage.removeItem(k); } catch(e){} });
+    // 若有其它以 irouter_ 开头的缓存，逐条清理其中含 "apiGET" 的条目
+    for(var i = localStorage.length - 1; i >= 0; i--){
+      var key = localStorage.key(i);
+      if(key && key.indexOf('irouter_') === 0 && key.toLowerCase().indexOf('apiget') >= 0){
+        localStorage.removeItem(key);
+      }
+    }
+  } catch(e){}
+})();
+
+// 所有后台 API 请求统一走上方定义的 window.api（v2.5.4：自动拼 /admin/api 前缀，
+// 401 由 fetchWithAuth 处理 —— 这里直接复用，避免两套实现不一致）。
 
 // ---------- 登录 ----------
 function bindLogin(){
